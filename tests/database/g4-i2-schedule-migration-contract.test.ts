@@ -48,9 +48,12 @@ describe("G4-I2 schedule schema migration", () => {
 
   it("stores cancellation reason as constrained task text, not audit metadata", () => {
     expect(migration).toContain("cancellation_reason text");
-    expect(migration).toMatch(
-      /regexp_replace\(\s*cancellation_reason,\s*E'\^\[ \\t\\r\\n\\f\]\+\|\[ \\t\\r\\n\\f\]\+\$',\s*'',\s*'g'\s*\)/,
-    );
+    expect(migration).toContain("and cancellation_reason = btrim(");
+    expect(migration).toContain("|| chr(11)");
+    expect(migration).toContain("|| chr(133)");
+    expect(migration).toContain("|| chr(160)");
+    expect(migration).toContain("|| chr(8195)");
+    expect(migration).toContain("|| chr(65279)");
     expect(migration).toMatch(
       /length\(cancellation_reason\) between 1 and 500/,
     );
@@ -77,6 +80,10 @@ describe("G4-I2 schedule schema migration", () => {
 
     expect(semanticsTest).toContain("legacy_btrim_does_not_trim_tabs");
     expect(semanticsTest).toContain("required_boundary_whitespace_is_empty");
+    expect(semanticsTest).toContain("unicode_boundary_whitespace_is_empty");
+    expect(semanticsTest).toContain("each_frozen_code_point_is_empty");
+    expect(semanticsTest).toContain("entire_unicode_whitespace_set_is_empty");
+    expect(semanticsTest).toContain("zero_width_space_is_preserved");
     expect(semanticsTest).toContain("internal_newline_is_preserved");
     expect(semanticsTest).toContain("exactly_500_characters_is_valid");
     expect(semanticsTest).toContain("more_than_500_characters_is_invalid");

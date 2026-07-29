@@ -22,8 +22,8 @@
 
 - `execution_state = 'cancelled'` 时 `cancellation_reason` 必须非空。
 - `execution_state <> 'cancelled'` 时 `cancellation_reason` 必须为 `null`。
-- 存储值必须等于自身 trim 后结果；I2 边界空白集合固定为 ASCII space、tab、CR、LF、form-feed。
-- 其他 Unicode 空白不自动裁剪，按正文字符保留；前端必须使用相同集合，不得直接用范围更宽的默认 Unicode trim 改写正文。
+- 存储值必须等于自身 trim 后结果；边界集合固定为 Unicode White_Space：U+0009–000D、U+0020、U+0085、U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000，并补 U+FEFF。
+- U+200B 不属于本集合，不自动裁剪；前端必须镜像同一明确字符集合。
 - 只裁首尾边界空白，正文内部换行原样保留。
 - 取消不物理删除任务。
 

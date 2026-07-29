@@ -49,11 +49,30 @@ create table public.experiment_tasks (
       cancellation_reason is null
       or (
         length(cancellation_reason) between 1 and 500
-        and cancellation_reason = regexp_replace(
+        and cancellation_reason = btrim(
           cancellation_reason,
-          E'^[ \t\r\n\f]+|[ \t\r\n\f]+$',
-          '',
-          'g'
+          E' \t\n\r\f'
+            || chr(11)
+            || chr(133)
+            || chr(160)
+            || chr(5760)
+            || chr(8192)
+            || chr(8193)
+            || chr(8194)
+            || chr(8195)
+            || chr(8196)
+            || chr(8197)
+            || chr(8198)
+            || chr(8199)
+            || chr(8200)
+            || chr(8201)
+            || chr(8202)
+            || chr(8232)
+            || chr(8233)
+            || chr(8239)
+            || chr(8287)
+            || chr(12288)
+            || chr(65279)
         )
       )
     ),

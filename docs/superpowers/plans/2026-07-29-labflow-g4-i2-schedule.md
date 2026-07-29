@@ -56,7 +56,7 @@
 ### 2.4 产品冻结增量：取消原因
 
 - `public.experiment_tasks.cancellation_reason` 为 nullable 纯文本业务正文，不复用 `notes`。
-- `cancel_experiment_task` 对 reason 执行 trim 后要求 1–500 字符；I2 明确定义 ASCII space/tab/CR/LF/form-feed 为边界空白，空白或超长返回 `VALIDATION_FAILED`，事务零副作用。其他 Unicode 空白不自动裁剪；前端必须镜像同一字符集合。
+- `cancel_experiment_task` 对 reason 执行 trim 后要求 1–500 字符；边界集合严格采用产品冻结的 Unicode White_Space（U+0009–000D、U+0020、U+0085、U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）并补 U+FEFF。U+200B 不裁剪；前端必须镜像同一明确集合。
 - `execution_state='cancelled'` 时原因必须非空；其他状态原因必须为 `null`。
 - 取消事务原子更新状态、原因和 revision，写 mutation receipt，并只向 audit metadata 写状态/revision，不写取消正文。
 - 不增加 `cancelled_at`；取消事件时间以不可变 audit event `created_at` 为事实。

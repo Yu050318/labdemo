@@ -45,7 +45,7 @@
 
 SHA-256：
 
-`E3EE425923DBF1BA539EEC79C9392C861694D67B95D34CE30CD33F8AA4798C69`
+`F45E2445F68CF7CFF6BA6C21D7006286B58318F5DC37C2DD0FF4688516273301`
 
 远端 history：无变化。当前未连接或写入 Supabase 项目，未运行 Auth 管理操作，未创建测试用户或业务行。
 
@@ -55,7 +55,7 @@ SHA-256：
 - 外键：`space_id -> public.spaces(id)`、`created_by -> auth.users(id)`，均为 `ON DELETE RESTRICT`。
 - 外键列有全量索引；日程与执行状态查询使用过滤软删除行的组合索引。
 - 标题最大 200 字符，备注最大 10,000 字符。
-- `cancellation_reason` 为 trim 后 1–500 字符的纯文本；边界集合固定为 ASCII space/tab/CR/LF/form-feed，其他 Unicode 空白按正文保留；仅 cancelled 状态可非空，且 cancelled 状态必须非空。
+- `cancellation_reason` 为 trim 后 1–500 字符的纯文本；边界集合固定为产品冻结的 Unicode White_Space 全集并补 U+FEFF，U+200B 不裁剪；仅 cancelled 状态可非空，且 cancelled 状态必须非空。
 - execution state 与 day part 使用冻结枚举 check。
 - `protocol_version_id` 没有 FK，非空值被 check 拒绝。
 - RLS 默认拒绝；`anon` 无表权限；`authenticated` 仅获得 SELECT。
@@ -69,8 +69,8 @@ SHA-256：
 - 完成 schema 后：发现 2 个只与 SQL 换行有关的脆弱断言，改为忽略空白的语义正则。
 - 最佳实践复核新增外键索引测试：1 项预期失败；补齐 `space_id`、`created_by` 全量索引后通过。
 - 产品冻结取消原因口径后，先新增字段、长度、trim、状态一致性和 audit 排除断言并观察预期失败；实现后通过。
-- 测试部静态复核发现 PostgreSQL `btrim(text)` 默认不裁剪制表符/换行；新增真实 PostgreSQL 语义回归后改用显式 ASCII 边界字符集的 `regexp_replace`。
-- 目标项目只读 PostgreSQL 语义复现：旧 `btrim(E'\t\n')` 长度为 2；新表达式对 space/tab/CR/LF/混合全空白归一为长度 0，内部换行保持，1/500 接受、501 拒绝。测试不含 DDL/DML，未修改远端。
+- 测试部静态复核发现 PostgreSQL `btrim(text)` 默认不裁剪制表符/换行；新增真实 PostgreSQL 语义回归后改用带完整冻结字符集合第二参数的 `btrim`。
+- 目标项目只读 PostgreSQL 语义复现覆盖 space、tab、CR/LF、vertical tab、NEL、NBSP、em-space、narrow no-break space、ideographic space、FEFF 及全集合组合；内部换行保持，U+200B 保留，1/500 接受、501 拒绝。测试不含 DDL/DML，未修改远端。
 - 定向契约测试：8/8 通过。
 - 全量测试：11 个文件、64/64 通过。
 - TypeScript：通过。

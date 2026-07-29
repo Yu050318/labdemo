@@ -1,9 +1,9 @@
 # LabFlow P0 / G4-I1/B Auth 运行态与隔离报告
 
-> 版本：G4-I1-B-Prep-3
+> 版本：G4-I1-B-Run-1
 > 日期：2026-07-29
 > 目标项目：`LabFlow` / `ogvqegmgcuwlynczasop`
-> 当前结论：PRE-01 与 PRE-03 静态整改已完成，PRE-02 所需 harness 已就绪；真实 Auth 与真实过期 token 证据仍等待环境所有者安全注入，B 尚未通过。
+> 当前结论：用户受控真实 Auth 运行除自然过期 token 外均已通过，清理结果已由 project-scoped OAuth/MCP 只读复核；RUN-01 可申请关闭，PRE-02 仅剩 `expiredSession`，完整 B 尚未通过。
 
 ## 1. 本轮整改
 
@@ -86,7 +86,7 @@ membership 边界的去敏断言只输出通过项，不输出业务行内容：
 
 此流程需要真实时间流逝，不能在本轮静态整改中伪造完成。
 
-## 6. 本轮验证
+## 6. Prep-3 静态验证（历史记录）
 
 - Prep-2 TDD 红灯：先后 5 个和 1 个预期失败。
 - PRE-03 TDD 红灯：新增 2 个预期失败；最小修复后 harness 专项 10/10 通过。
@@ -101,14 +101,74 @@ membership 边界的去敏断言只输出通过项，不输出业务行内容：
 - Security Advisor：0。
 - 生产依赖 `npm audit --omit=dev`：0 漏洞。
 
-未执行 `npm.cmd run test:g4-i1-auth`，因为当前任务禁止读取、索取或自行注入 secret；真实 A/B、旧 token、pending_deletion/purging 和真正过期 token 运行证据仍待后续安全执行。
+Prep-3 阶段开发部未执行 `npm.cmd run test:g4-i1-auth`，因为该阶段禁止读取、索取或自行注入 secret。后续用户受控运行结果见第 8 节。
 
 ## 7. 部署与门禁
 
 - Supabase：Prep-2 migration 已应用。
 - Web/Sites：本轮无部署、无 UI 变更。
 - G4-I1/A：已通过。
-- G4-I1/B：仍待真实 Auth 运行与测试部正式验收。
+- G4-I1/B：真实 Auth 主体运行已形成证据，仍待自然过期 token 与测试部正式验收。
 - G4-I1/C：禁止开始。
 
 `MEMORY.md` 不存在，本轮未创建或更新。
+
+## 8. 用户受控真实运行证据
+
+用户在受控 PowerShell 会话运行 `npm run test:g4-i1-auth`。开发部未接触运行变量、Key、JWT、邮箱或原始 UUID，仅接收以下去敏结果：
+
+- `status=incomplete`
+- `projectRef=ogvqegmgcuwlynczasop`
+- fixtures A/B：`emailConfirmed=true`，各自仅输出 12 位不可逆 `redactedId`
+- 以下断言全部 `passed`：
+  - `failureRollback`
+  - `firstBootstrap`
+  - `sequentialIdempotency`
+  - `sameUserConcurrency`
+  - `crossUserConcurrency`
+  - `revision`
+  - `crossAccountIsolation`
+  - `directMutationDenial`
+  - `removedMembership`
+  - `missingMembershipRow`
+  - `pendingDeletionOldSession`
+  - `purgingOldSession`
+  - `invalidSession`
+  - `localSignOut`
+- 唯一未执行项：
+  - `expiredSession.status=not_run`
+  - `reason=requires_naturally_expired_supabase_issued_token`
+- `cleanup.status=passed`；A/B 的 profiles、spaces、memberships、preferences 均由清理前 `1` 变为清理后 `0`。
+
+### 8.1 远端只读独立核验
+
+开发部通过 project-scoped Supabase OAuth/MCP 对唯一目标项目执行聚合计数查询，没有读取身份字段或行内容。结果为：
+
+- 带 `labflow_fixture=g4_i1_b` 标记的 Auth 用户：0
+- fixture 关联 profiles：0
+- fixture 关联 spaces：0
+- fixture 关联 memberships：0
+- fixture 关联 preferences：0
+- 四张业务表总行数分别为：profiles=0、spaces=0、memberships=0、preferences=0
+
+用户去敏清理回执与远端聚合事实一致；未发现本轮 fixture 或业务行残留。开发部没有执行删除或其他远端写操作。
+
+### 8.2 门禁判断
+
+- `QA-G4-I1-B-RUN-01`：原 Fixture A 创建阶段失败已不再复现，且真实运行完成全部后续 Auth/RLS/清理断言，可提交测试部关闭。
+- `PRE-02`：除自然过期 token 的服务端拒绝证据外，其余真实运行证据均已形成，可按子项关闭；`PRE-02` 整体仍不能关闭。
+- `G4-I1/B` 与完整 `G4-I1`：按当前冻结门禁仍未通过。
+- 在测试部关闭 `expiredSession` 并正式判定 B 通过，或产品部明确调整门禁前，不进入 G4-I1 下一增量。
+
+## 9. `expiredSession` 安全执行方案
+
+推荐使用一次性、用户本地受控的“单进程自然过期探针”，避免 token 在进程间传递：
+
+1. 仅在用户受控本地进程内创建独立合成账号并取得 Supabase 正式签发的 access token。
+2. token 只保存在该进程内存中；不得输出、写入环境文件、普通文件、日志、剪贴板、聊天或 commit。
+3. 进程只记录非敏感的 `expires_at` 和阶段状态，并等待该签发 token 自然超过 `exp`；不得修改项目 JWT 生命周期、系统时钟或伪造 token。
+4. 到期后由同一进程调用 Supabase Auth `getUser(token)`；只有本地 `exp < now` 且服务端明确拒绝时，才输出 `expiredSession.status=passed`。
+5. 无论通过、失败或用户中断，均在 `finally`/退出处理器中清理该独立合成账号；随后再通过 project-scoped OAuth/MCP 只读核验 fixture 与四表聚合计数为 0。
+6. 输出仍只允许固定的 `status`、`stage`、安全错误类别和聚合计数，不得包含 token、邮箱、UUID、响应正文或请求头。
+
+该探针需要先以 TDD 实现并通过测试部静态安全复核，再授权用户运行。现有真实 harness 不应通过聊天接收 token，也不应要求用户把 token 保存到文件。

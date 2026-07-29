@@ -13,17 +13,17 @@ describe("G3 fixed-data harness", () => {
   });
 
   it("contains the non-ideal states required before static page QA", () => {
-    expect(G3_FIXED_STATES).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ state: "loading" }),
-        expect.objectContaining({ state: "empty" }),
-        expect.objectContaining({ state: "error" }),
-        expect.objectContaining({ state: "offline" }),
-        expect.objectContaining({ state: "conflict" }),
-        expect.objectContaining({ state: "notification_unavailable" }),
-        expect.objectContaining({ state: "pending_sync_23h59m" }),
-        expect.objectContaining({ state: "pending_sync_over_24h" }),
-      ]),
-    );
+    expect(G3_FIXED_STATES.map(({ state }) => state)).toEqual([
+      "normal",
+      "loading",
+      "empty",
+      "error",
+      "disabled",
+      "offline",
+      "conflict",
+      "notification-unavailable",
+      "account-pending-deletion",
+      "dense",
+    ]);
   });
 });

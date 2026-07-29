@@ -1,0 +1,36 @@
+:root {
+  --canvas: #f3f0e7;
+  --paper: #fcfaf3;
+  --paper-muted: #f4f0e5;
+  --paper-deep: #e9e4d6;
+  --ink: #123b34;
+  --ink-strong: #082f29;
+  --ink-muted: #5d6a63;
+  --rule: #c8c8b8;
+  --rule-strong: #9fa99e;
+  --brand: #075c4c;
+  --brand-hover: #064d41;
+  --sage: #6c8f62;
+  --sage-soft: #e5ecdf;
+  --oxide: #c84a1b;
+  --oxide-soft: #fff0e8;
+  --amber: #9a6a15;
+  --amber-soft: #fbf2d9;
+  --blue: #315c78;
+  --blue-soft: #e8f0f4;
+  --focus: #0b6e5b;
+  --white: #fffef9;
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", STSong, serif;
+  --font-body: "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --shadow-paper: 0 14px 36px rgba(24, 48, 40, 0.08);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}

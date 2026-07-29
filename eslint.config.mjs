@@ -8,9 +8,12 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     ".open-next/**",
+    ".wrangler/**",
     ".playwright-cli/**",
     "artifacts/**",
     "coverage/**",
     "design/**",
+    "docs/qa/scripts/**",
+    "output/**",
   ]),
 ]);

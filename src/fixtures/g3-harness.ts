@@ -55,28 +55,35 @@ export const G3_ROUTE_SKELETON = [
 ] as const satisfies readonly RouteSkeleton[];
 
 type HarnessState =
+  | "normal"
   | "loading"
   | "empty"
   | "error"
+  | "disabled"
   | "offline"
   | "conflict"
-  | "notification_unavailable"
-  | "pending_sync_23h59m"
-  | "pending_sync_over_24h";
+  | "notification-unavailable"
+  | "account-pending-deletion"
+  | "dense";
 
 export const G3_FIXED_STATES: ReadonlyArray<{
   id: string;
   state: HarnessState;
 }> = [
+  { id: "state-normal", state: "normal" },
   { id: "state-loading", state: "loading" },
   { id: "state-empty", state: "empty" },
   { id: "state-error", state: "error" },
+  { id: "state-disabled", state: "disabled" },
   { id: "state-offline", state: "offline" },
   { id: "state-conflict", state: "conflict" },
   {
     id: "state-notification-unavailable",
-    state: "notification_unavailable",
+    state: "notification-unavailable",
   },
-  { id: "state-pending-sync-23h59m", state: "pending_sync_23h59m" },
-  { id: "state-pending-sync-over-24h", state: "pending_sync_over_24h" },
+  {
+    id: "state-account-pending-deletion",
+    state: "account-pending-deletion",
+  },
+  { id: "state-dense", state: "dense" },
 ];

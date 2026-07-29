@@ -159,6 +159,14 @@ interface Database {
         };
         Returns: undefined;
       };
+      g4_i1_test_remove_membership: {
+        Args: { user_id: string };
+        Returns: undefined;
+      };
+      g4_i1_test_restore_membership: {
+        Args: { user_id: string };
+        Returns: undefined;
+      };
       g4_i1_test_fixture_snapshot: {
         Args: { user_ids: string[] };
         Returns: FixtureSnapshot[];
@@ -177,6 +185,7 @@ interface RuntimeConfig {
   supabaseUrl: string;
   publishableKey: string;
   serviceRoleKey: string;
+  expiredAccessToken?: string;
 }
 
 interface FixtureSnapshot {
@@ -201,8 +210,46 @@ interface BootstrapResult {
   alreadyExisted: boolean;
 }
 
+interface FixtureCounts {
+  profile_count: number;
+  space_count: number;
+  membership_count: number;
+  preferences_count: number;
+}
+
 const fixtureTag = "g4_i1_b";
 const timezone = "Asia/Shanghai";
+
+export const crossAccountSelectMatrix = [
+  ["A", "B", "user_profiles"],
+  ["B", "A", "user_profiles"],
+  ["A", "B", "spaces"],
+  ["B", "A", "spaces"],
+  ["A", "B", "space_memberships"],
+  ["B", "A", "space_memberships"],
+  ["A", "B", "user_preferences"],
+  ["B", "A", "user_preferences"],
+] as const;
+
+export const crossAccountMutationMatrix = (
+  [
+    ["A", "B"],
+    ["B", "A"],
+  ] as const
+).flatMap(([reader, target]) =>
+  (
+    [
+      "user_profiles",
+      "spaces",
+      "space_memberships",
+      "user_preferences",
+    ] as const
+  ).flatMap((table) =>
+    (["INSERT", "UPDATE", "DELETE"] as const).map(
+      (operation) => [reader, target, table, operation] as const,
+    ),
+  ),
+);
 
 export function loadRuntimeConfig(
   environment: Readonly<Record<string, string | undefined>>,
@@ -222,11 +269,87 @@ export function loadRuntimeConfig(
     supabaseUrl: environment.SUPABASE_URL!,
     publishableKey: environment.SUPABASE_PUBLISHABLE_KEY!,
     serviceRoleKey: environment.SUPABASE_SERVICE_ROLE_KEY!,
+    expiredAccessToken: environment.LABFLOW_TEST_EXPIRED_ACCESS_TOKEN,
   };
 }
 
 export function redactIdentifier(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+export function readExpiredJwtMetadata(
+  token: string,
+  nowMs = Date.now(),
+): { expiredAt: string } {
+  const segments = token.split(".");
+  if (segments.length !== 3 || !segments[1]) {
+    throw new Error("Injected token is not a JWT");
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(
+      Buffer.from(segments[1], "base64url").toString("utf8"),
+    );
+  } catch {
+    throw new Error("Injected token has no readable JWT payload");
+  }
+
+  if (
+    typeof decoded !== "object"
+    || decoded === null
+    || !("exp" in decoded)
+    || typeof decoded.exp !== "number"
+    || !Number.isFinite(decoded.exp)
+  ) {
+    throw new Error("Injected token has no numeric exp claim");
+  }
+
+  const expiredAtMs = decoded.exp * 1000;
+  if (expiredAtMs >= nowMs) {
+    throw new Error("Injected token has not expired");
+  }
+
+  return { expiredAt: new Date(expiredAtMs).toISOString() };
+}
+
+export function isExpiredAuthRejection(error: {
+  message?: string;
+  code?: string;
+}): boolean {
+  return error.code === "bad_jwt" && /(?:expired|expiration)/i.test(
+    error.message ?? "",
+  );
+}
+
+export function buildCleanupEvidence(
+  fixtures: ReadonlyArray<{ alias: "A" | "B"; id: string }>,
+  before: ReadonlyMap<string, FixtureCounts>,
+  after: ReadonlyMap<string, FixtureCounts>,
+) {
+  return fixtures.map((fixture) => {
+    const beforeCounts = before.get(fixture.id);
+    const afterCounts = after.get(fixture.id);
+    invariant(beforeCounts, `Missing pre-cleanup counts for ${fixture.alias}`);
+    invariant(afterCounts, `Missing post-cleanup counts for ${fixture.alias}`);
+
+    return {
+      alias: fixture.alias,
+      redactedId: redactIdentifier(fixture.id),
+      before: {
+        profiles: beforeCounts.profile_count,
+        spaces: beforeCounts.space_count,
+        memberships: beforeCounts.membership_count,
+        preferences: beforeCounts.preferences_count,
+      },
+      after: {
+        profiles: afterCounts.profile_count,
+        spaces: afterCounts.space_count,
+        memberships: afterCounts.membership_count,
+        preferences: afterCounts.preferences_count,
+      },
+    };
+  });
 }
 
 function invariant(condition: unknown, message: string): asserts condition {
@@ -360,6 +483,79 @@ async function expectDenied(
   invariant(result.error !== null, `${label} unexpectedly succeeded`);
 }
 
+async function assertCrossAccountMutationDirection(
+  reader: FixtureUser,
+  target: FixtureUser,
+  targetBootstrap: BootstrapResult,
+) {
+  const operations = [
+    reader.client.from("user_profiles").insert({
+      user_id: target.id,
+    }),
+    reader.client
+      .from("user_profiles")
+      .update({ display_name: "Unauthorized" })
+      .eq("user_id", target.id),
+    reader.client
+      .from("user_profiles")
+      .delete()
+      .eq("user_id", target.id),
+    reader.client.from("spaces").insert({
+      name: "Unauthorized",
+      owner_user_id: target.id,
+    }),
+    reader.client
+      .from("spaces")
+      .update({ name: "Unauthorized" })
+      .eq("id", targetBootstrap.spaceId),
+    reader.client
+      .from("spaces")
+      .delete()
+      .eq("id", targetBootstrap.spaceId),
+    reader.client.from("space_memberships").insert({
+      space_id: targetBootstrap.spaceId,
+      user_id: target.id,
+    }),
+    reader.client
+      .from("space_memberships")
+      .update({ status: "removed" })
+      .eq("space_id", targetBootstrap.spaceId)
+      .eq("user_id", target.id),
+    reader.client
+      .from("space_memberships")
+      .delete()
+      .eq("space_id", targetBootstrap.spaceId)
+      .eq("user_id", target.id),
+    reader.client.from("user_preferences").insert({
+      id: targetBootstrap.preferencesId,
+      user_id: target.id,
+      space_id: targetBootstrap.spaceId,
+      timezone,
+    }),
+    reader.client
+      .from("user_preferences")
+      .update({ summary_enabled: false })
+      .eq("id", targetBootstrap.preferencesId),
+    reader.client
+      .from("user_preferences")
+      .delete()
+      .eq("id", targetBootstrap.preferencesId),
+  ] as const;
+  const matrixEntries = crossAccountMutationMatrix.filter(
+    ([readerAlias]) => readerAlias === reader.alias,
+  );
+  invariant(
+    operations.length === matrixEntries.length,
+    "Cross-account mutation matrix is incomplete",
+  );
+
+  for (const [index, operation] of operations.entries()) {
+    const matrixEntry = matrixEntries[index];
+    invariant(matrixEntry, "Cross-account mutation label is missing");
+    await expectDenied(matrixEntry.join(" "), operation);
+  }
+}
+
 async function assertCrossAccountIsolation(
   userA: FixtureUser,
   userB: FixtureUser,
@@ -382,24 +578,45 @@ async function assertCrossAccountIsolation(
     .from("spaces")
     .select("id")
     .eq("id", bootstrapA.spaceId);
+  const aReadsBMembership = await userA.client
+    .from("space_memberships")
+    .select("space_id")
+    .eq("user_id", userB.id);
+  const bReadsAMembership = await userB.client
+    .from("space_memberships")
+    .select("space_id")
+    .eq("user_id", userA.id);
+  const aReadsBPreferences = await userA.client
+    .from("user_preferences")
+    .select("id")
+    .eq("id", bootstrapB.preferencesId);
+  const bReadsAPreferences = await userB.client
+    .from("user_preferences")
+    .select("id")
+    .eq("id", bootstrapA.preferencesId);
 
-  for (const [label, result] of [
-    ["A reads B profile", aReadsBProfile],
-    ["B reads A profile", bReadsAProfile],
-    ["A reads B space", aReadsBSpace],
-    ["B reads A space", bReadsASpace],
-  ] as const) {
+  const results = [
+    aReadsBProfile,
+    bReadsAProfile,
+    aReadsBSpace,
+    bReadsASpace,
+    aReadsBMembership,
+    bReadsAMembership,
+    aReadsBPreferences,
+    bReadsAPreferences,
+  ] as const;
+
+  for (const [index, result] of results.entries()) {
+    const matrixEntry = crossAccountSelectMatrix[index];
+    invariant(matrixEntry, "Cross-account SELECT matrix is incomplete");
+    const [reader, target, table] = matrixEntry;
+    const label = `${reader} reads ${target} ${table}`;
     invariant(!result.error, `${label} returned an API error`);
     invariant(result.data.length === 0, `${label} exposed a row`);
   }
 
-  await expectDenied(
-    "cross-account INSERT",
-    userA.client.from("spaces").insert({
-      name: "Unauthorized",
-      owner_user_id: userB.id,
-    }),
-  );
+  await assertCrossAccountMutationDirection(userA, userB, bootstrapB);
+  await assertCrossAccountMutationDirection(userB, userA, bootstrapA);
   await expectDenied(
     "owner tamper UPDATE",
     userA.client
@@ -469,6 +686,24 @@ async function setMembershipStatus(
   }
 }
 
+async function changeMembershipPresence(
+  admin: SupabaseClient<Database>,
+  userId: string,
+  operation: "remove" | "restore",
+) {
+  const response = await admin.rpc(
+    operation === "remove"
+      ? "g4_i1_test_remove_membership"
+      : "g4_i1_test_restore_membership",
+    { user_id: userId },
+  );
+  if (response.error) {
+    throw new Error(
+      `membership ${operation} failed (${describeError(response.error)})`,
+    );
+  }
+}
+
 async function assertNoBusinessRead(
   user: FixtureUser,
   label: string,
@@ -491,38 +726,60 @@ async function assertNoBusinessRead(
   }
 }
 
-async function countFixtureRows(
+function snapshotCountsByUser(rows: FixtureSnapshot[]) {
+  return new Map<string, FixtureCounts>(
+    rows.map((row) => [
+      row.user_id,
+      {
+        profile_count: row.profile_count,
+        space_count: row.space_count,
+        membership_count: row.membership_count,
+        preferences_count: row.preferences_count,
+      },
+    ]),
+  );
+}
+
+async function countFixtureRowsByUser(
   admin: SupabaseClient<Database>,
   userIds: string[],
 ) {
-  const requests = [
-    admin
-      .from("user_profiles")
-      .select("user_id", { count: "exact", head: true })
-      .in("user_id", userIds),
-    admin
-      .from("spaces")
-      .select("id", { count: "exact", head: true })
-      .in("owner_user_id", userIds),
-    admin
-      .from("space_memberships")
-      .select("space_id", { count: "exact", head: true })
-      .in("user_id", userIds),
-    admin
-      .from("user_preferences")
-      .select("id", { count: "exact", head: true })
-      .in("user_id", userIds),
-  ] as const;
-  const results = await Promise.all(requests);
+  const counts = new Map<string, FixtureCounts>();
+  for (const userId of userIds) {
+    const results = await Promise.all([
+      admin
+        .from("user_profiles")
+        .select("user_id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      admin
+        .from("spaces")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_user_id", userId),
+      admin
+        .from("space_memberships")
+        .select("space_id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      admin
+        .from("user_preferences")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId),
+    ]);
 
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(
-        `fixture row count failed (${describeError(result.error)})`,
-      );
+    for (const result of results) {
+      if (result.error) {
+        throw new Error(
+          `fixture row count failed (${describeError(result.error)})`,
+        );
+      }
     }
+    counts.set(userId, {
+      profile_count: results[0].count ?? -1,
+      space_count: results[1].count ?? -1,
+      membership_count: results[2].count ?? -1,
+      preferences_count: results[3].count ?? -1,
+    });
   }
-  return results.map((result) => result.count ?? -1);
+  return counts;
 }
 
 async function deleteFixtureUsers(
@@ -539,6 +796,30 @@ async function deleteFixtureUsers(
   }
 }
 
+async function verifyExpiredSessionIfProvided(config: RuntimeConfig) {
+  if (!config.expiredAccessToken) {
+    return {
+      status: "not_run",
+      reason: "requires_naturally_expired_supabase_issued_token",
+    } as const;
+  }
+
+  const metadata = readExpiredJwtMetadata(config.expiredAccessToken);
+  const client = createClient<Database>(
+    config.supabaseUrl,
+    config.publishableKey,
+    authOptions(),
+  );
+  const verification = await client.auth.getUser(config.expiredAccessToken);
+  invariant(
+    verification.error !== null
+      && verification.data.user === null
+      && isExpiredAuthRejection(verification.error),
+    "Supabase Auth did not confirm token expiration",
+  );
+  return { status: "passed", ...metadata } as const;
+}
+
 export async function runAuthIsolationHarness(
   environment: NodeJS.ProcessEnv = process.env,
 ) {
@@ -550,6 +831,20 @@ export async function runAuthIsolationHarness(
   );
   const users: FixtureUser[] = [];
   const createdUserIds: string[] = [];
+  let report:
+    | {
+        status: "passed" | "incomplete";
+        projectRef: string;
+        fixtures: Array<{
+          alias: "A" | "B";
+          redactedId: string;
+          emailConfirmed: true;
+        }>;
+        assertions: Record<string, string | object>;
+      }
+    | undefined;
+  let cleanupBefore = new Map<string, FixtureCounts>();
+  let cleanupEvidence: ReturnType<typeof buildCleanupEvidence> = [];
 
   try {
     const registerCreatedUser = (userId: string) => {
@@ -667,6 +962,25 @@ export async function runAuthIsolationHarness(
     );
     await setMembershipStatus(admin, userA.id, "active");
 
+    await changeMembershipPresence(admin, userA.id, "remove");
+    const missingMembershipSnapshot = (await snapshot(admin, [userA.id]))[0];
+    invariant(
+      missingMembershipSnapshot?.membership_count === 0,
+      "A membership row still exists after physical removal",
+    );
+    await assertNoBusinessRead(userA, "missing membership");
+    await expectDenied(
+      "missing membership bootstrap",
+      userA.client.rpc("bootstrap_personal_space", { timezone }),
+    );
+    await changeMembershipPresence(admin, userA.id, "restore");
+    const restoredMembershipSnapshot = (await snapshot(admin, [userA.id]))[0];
+    invariant(
+      restoredMembershipSnapshot?.membership_count === 1
+        && restoredMembershipSnapshot.membership_status === "active",
+      "A membership row was not restored",
+    );
+
     for (const status of ["pending_deletion", "purging"] as const) {
       await setAccountStatus(admin, userA.id, status);
       await assertNoBusinessRead(userA, `${status} old session`);
@@ -688,9 +1002,10 @@ export async function runAuthIsolationHarness(
       },
     );
     await expectDenied(
-      "invalid or expired session",
+      "invalid session",
       invalidSessionClient.from("user_profiles").select("user_id"),
     );
+    const expiredSession = await verifyExpiredSessionIfProvided(config);
 
     const signOut = await userA.client.auth.signOut({ scope: "local" });
     invariant(!signOut.error, "A local sign-out failed");
@@ -704,8 +1019,11 @@ export async function runAuthIsolationHarness(
       userA.client.from("user_profiles").select("user_id"),
     );
 
-    return {
-      status: "passed",
+    cleanupBefore = snapshotCountsByUser(
+      await snapshot(admin, createdUserIds),
+    );
+    report = {
+      status: expiredSession.status === "passed" ? "passed" : "incomplete",
       projectRef: "ogvqegmgcuwlynczasop",
       fixtures: users.map((user) => ({
         alias: user.alias,
@@ -722,23 +1040,45 @@ export async function runAuthIsolationHarness(
         crossAccountIsolation: "passed",
         directMutationDenial: "passed",
         removedMembership: "passed",
+        missingMembershipRow: "passed",
         pendingDeletionOldSession: "passed",
         purgingOldSession: "passed",
         invalidSession: "passed",
+        expiredSession,
         localSignOut: "passed",
-        cleanup: "passed",
       },
     };
   } finally {
     if (createdUserIds.length > 0) {
+      if (cleanupBefore.size === 0) {
+        cleanupBefore = snapshotCountsByUser(
+          await snapshot(admin, createdUserIds),
+        );
+      }
       await deleteFixtureUsers(admin, createdUserIds);
-      const cleanupCounts = await countFixtureRows(admin, createdUserIds);
+      const cleanupAfter = await countFixtureRowsByUser(admin, createdUserIds);
       invariant(
-        cleanupCounts.every((count) => count === 0),
+        [...cleanupAfter.values()].every((counts) =>
+          Object.values(counts).every((count) => count === 0),
+        ),
         "Fixture cleanup left business rows",
+      );
+      cleanupEvidence = buildCleanupEvidence(
+        users,
+        cleanupBefore,
+        cleanupAfter,
       );
     }
   }
+
+  invariant(report, "Harness completed without a report");
+  return {
+    ...report,
+    cleanup: {
+      status: "passed",
+      fixtures: cleanupEvidence,
+    },
+  };
 }
 
 async function main() {

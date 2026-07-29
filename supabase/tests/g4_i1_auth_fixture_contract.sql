@@ -8,6 +8,8 @@ declare
   service_only_functions constant regprocedure[] := array[
     'public.g4_i1_test_set_account_status(uuid,text)'::regprocedure,
     'public.g4_i1_test_set_membership_status(uuid,text)'::regprocedure,
+    'public.g4_i1_test_remove_membership(uuid)'::regprocedure,
+    'public.g4_i1_test_restore_membership(uuid)'::regprocedure,
     'public.g4_i1_test_fixture_snapshot(uuid[])'::regprocedure
   ];
   rollback_probe constant regprocedure :=
@@ -58,6 +60,14 @@ begin
     raise exception 'The fixture rollback probe has an invalid EXECUTE ACL';
   end if;
 
+  if pg_catalog.has_function_privilege(
+    'authenticated',
+    'private.is_g4_i1_fixture_user(uuid)'::regprocedure,
+    'EXECUTE'
+  ) then
+    raise exception 'Authenticated can execute the private fixture predicate';
+  end if;
+
   if exists (
     select 1
     from pg_catalog.pg_proc as procedure
@@ -94,4 +104,8 @@ rollback;
 
 select version, name
 from supabase_migrations.schema_migrations
-where name = 'g4_i1_auth_fixture_support';
+where name in (
+  'g4_i1_auth_fixture_support',
+  'g4_i1_tighten_fixture_acl_and_membership'
+)
+order by version;

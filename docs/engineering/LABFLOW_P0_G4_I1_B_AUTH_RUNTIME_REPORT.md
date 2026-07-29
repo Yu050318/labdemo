@@ -1,114 +1,103 @@
 # LabFlow P0 / G4-I1/B Auth 运行态与隔离报告
 
-> 版本：G4-I1-B-Prep-1
+> 版本：G4-I1-B-Prep-2
 > 日期：2026-07-29
 > 目标项目：`LabFlow` / `ogvqegmgcuwlynczasop`
-> 当前结论：测试支撑已就绪；Auth Admin 运行证据受安全凭据注入阻断，B 尚未通过
+> 当前结论：PRE-01 已关闭，PRE-02 所需 harness 已就绪；真实 Auth 与真实过期 token 证据仍等待环境所有者安全注入，B 尚未通过。
 
-## 1. 本轮完成
+## 1. 本轮整改
 
-- 锁定 `@supabase/supabase-js` 2.111.0。
-- 新增服务端 Auth 隔离 harness：`scripts/g4-i1-auth-isolation.ts`。
-- 新增 migration `20260729104223_g4_i1_auth_fixture_support.sql` 并应用到目标项目。
-- 新增 fixture-only 状态/快照 RPC，供 pending_deletion、purging、removed membership 与清理计数验证。
-- 新增事务失败注入 RPC，用于确认 bootstrap 中途异常不残留 profile/space/membership/preferences。
-- 新增迁移 ACL 契约测试、harness 配置脱敏测试和远端只读 SQL 契约。
+- 追加 migration `20260729113507_g4_i1_tighten_fixture_acl_and_membership.sql`，未改写任何已应用 migration。
+- 撤销 `authenticated` 对 `private.is_g4_i1_fixture_user(uuid)` 的直接 `EXECUTE`。
+- 新增仅限 `service_role` 的 membership 物理删除/恢复 fixture RPC；private helper 为固定 `search_path=''` 的 `SECURITY DEFINER`，public wrapper 为 `SECURITY INVOKER`。
+- 所有 fixture 写操作先验证 `auth.users.raw_app_meta_data.labflow_fixture = g4_i1_b`；未标记 UUID 被拒绝。
+- harness 新增：
+  - membership 行物理不存在及恢复；
+  - 四张表 A→B、B→A 共 8 个 SELECT；
+  - 四张表 A→B、B→A 的 INSERT/UPDATE/DELETE 共 24 个拒绝断言；
+  - 同一 A/B 去敏 ID 对齐的清理前、后四表计数；
+  - 真实过期 JWT 的本地 `exp` 校验与 Supabase Auth 服务端拒绝校验。
+- 固定伪 token 只标记为 `invalidSession`，不再作为“过期 token”证据。
 
-没有接入页面、真实 Auth UI、日程或后续业务表，没有创建真实用户。
+未创建合成用户，未运行真实 Auth harness，未读取或输出任何 key、密码、邮箱、JWT、refresh token、连接串或 `.env`。
 
 ## 2. Migration 与远端状态
 
-新增 migration：
+- migration：`20260729113507_g4_i1_tighten_fixture_acl_and_membership`
+- SHA-256：`656C071016562B317D5FE3697291C7D25BB186C21DB29050090BC778256F825D`
+- 依赖顺序：
+  1. `20260729080019_g4_i1_identity_spaces_rls`
+  2. `20260729080358_g4_i1_enforce_iana_timezone`
+  3. `20260729104223_g4_i1_auth_fixture_support`
+  4. `20260729113507_g4_i1_tighten_fixture_acl_and_membership`
+- 已应用到唯一目标项目 `ogvqegmgcuwlynczasop`。
+- 四张 public 业务表仍均为 0 行，RLS 状态未改变。
+- 回退边界：这些 fixture helper 必须在 G5 前通过新的追加 migration 删除；不得改写或倒改本 migration。
 
-- 文件：`supabase/migrations/20260729104223_g4_i1_auth_fixture_support.sql`
-- SHA-256：`4C0FEB3773F4217E864483707333F47D7F8282A9866612AB530CFB293E46CE16`
-- 依赖：`20260729080019_g4_i1_identity_spaces_rls`、`20260729080358_g4_i1_enforce_iana_timezone`
+## 3. ACL 与实现边界
 
-远端 history：
+远端核验结果：
 
-1. `20260729080019 / g4_i1_identity_spaces_rls`
-2. `20260729080358 / g4_i1_enforce_iana_timezone`
-3. `20260729104223 / g4_i1_auth_fixture_support`
+- `private.is_g4_i1_fixture_user(uuid)`：`authenticated=false`、`service_role=true`。
+- remove/restore private helper：`SECURITY DEFINER`、固定空 `search_path`，仅 `service_role` 可执行。
+- remove/restore public wrapper：`SECURITY INVOKER`、固定空 `search_path`，仅 `service_role` 可执行。
+- `PUBLIC`、`anon`、`authenticated` 均不能执行新增 remove/restore 函数。
+- 未标记 UUID 的 remove/restore 调用均被 fixture guard 拒绝。
+- Security Advisor：0。
+- Performance Advisor：仅既有空库 `space_memberships_user_id_idx` 未使用 INFO；当前不删除该规格索引。
 
-A 的既有 migration 未修改。
+Supabase 平台的 `service_role` 客观上具备四张表的高权限写能力。因此“harness 不直接写业务表”不是 ACL 强制属性，而由以下边界保证：
 
-## 3. 测试支撑安全边界
+1. service-role secret 仅存在于受控服务端进程；
+2. harness 源码不使用 admin client 的直接 INSERT/UPDATE/DELETE/UPSERT；
+3. 状态构造只调用带 fixture tag guard 的专用 RPC；
+4. 静态测试持续检查上述代码边界。
 
-- 所有状态修改先验证 `auth.users.raw_app_meta_data.labflow_fixture = g4_i1_b`；不能作用于未标记用户。
-- account/membership/snapshot public wrapper 为 SECURITY INVOKER，仅 `service_role` 有 EXECUTE。
-- PUBLIC、anon、authenticated 对上述状态 wrapper 均无 EXECUTE。
-- 失败注入 wrapper 只允许 authenticated；私有 helper 再核对当前 `auth.uid()` 对应用户带 fixture 标记，且函数总是抛错回滚。
-- 所有私有 SECURITY DEFINER 固定 `search_path=''`，PUBLIC EXECUTE 已撤销。
-- service_role 只新增四张 G4-I1 表的 SELECT 和精确 fixture RPC EXECUTE；没有授予直接 INSERT/UPDATE/DELETE。
-- 测试支撑必须在 G5 前通过追加 migration 删除，不允许成为生产公开功能。
+## 4. 去敏运行证据格式
 
-## 4. Harness 覆盖范围
+真实运行后，每个 fixture 仅输出：
 
-安全注入运行时变量后，`npm.cmd run test:g4-i1-auth` 将：
+- `alias`：`A` 或 `B`；
+- `redactedId`：原始 UUID 的 12 位不可逆 SHA-256 截断；
+- 清理前、后 `profiles/spaces/memberships/preferences` 计数。
 
-1. 在服务端生成随机合成 A/B 邮箱和高熵密码，不写盘、不打印。
-2. 通过 Auth Admin `createUser({ email_confirm: true })` 创建两名带 fixture app_metadata 的用户。
-3. 用 publishable key 完成 A/B 密码登录并获得各自会话。
-4. 验证无效时区和中途失败注入均为 0 残留。
-5. 验证 A 首次 bootstrap 与顺序重复幂等。
-6. 验证 B 首次同用户双并发只产生一套资源，并返回同一 ID。
-7. 验证 A/B 并行重复调用保持隔离。
-8. 断言每人恰好 1 profile、1 active personal space、1 owner membership、1 preferences，preferences revision=1。
-9. 验证 A/B 双向跨账号 SELECT 为 0。
-10. 验证跨账号 INSERT/UPDATE/DELETE、owner/user/space 归属篡改和 service-only RPC 均失败。
-11. 验证 membership=`removed` 时所有普通业务读取为 0，bootstrap 失败；随后恢复 active。
-12. 用状态变化前的同一会话验证 pending_deletion/purging 立即阻断普通业务读取与 bootstrap；随后恢复 active。
-13. 验证无效/过期代表 token 被拒绝，local sign-out 后客户端不再持有会话且无法读取。
-14. `finally` 中通过 Auth Admin 删除本轮用户，并断言四张业务表针对两名用户的计数均为 0。
+成功清理的预期格式为每个别名清理前 `1/1/1/1`，清理后 `0/0/0/0`。报告不包含原始 UUID、邮箱或凭据。
 
-标准输出只包含 A/B 别名、不可逆 12 位哈希标识和通过项；不输出邮箱、密码、JWT、refresh token、service-role 或连接串。
+## 5. 真正过期 token 的限制与独立验证方法
 
-## 5. 当前阻断
+托管项目的已签发 JWT 不能通过数据库 migration 或当前 project-scoped MCP 安全地“立即过期”；改变 Auth JWT 生命周期也不属于本轮数据库整改范围。伪造、篡改或固定无效 token 不得替代真实过期证据。
 
-当前进程仅检查了环境变量是否存在，结果如下：
+独立验证方法：
 
-- `SUPABASE_URL`：未注入
-- `SUPABASE_PUBLISHABLE_KEY`：未注入
-- `SUPABASE_SERVICE_ROLE_KEY`：未注入
+1. 由环境所有者或测试部在受控进程中取得该项目真实签发的合成账号 access token，并仅保存在进程环境或秘密管理器中。
+2. 保留非敏感的签发来源记录与 `expires_at` 时间戳，等待该时间真实经过。
+3. 将原 token 以 `LABFLOW_TEST_EXPIRED_ACCESS_TOKEN` 安全注入同一受控进程，同时注入既有三项 Supabase 服务端运行变量。
+4. 运行 `npm.cmd run test:g4-i1-auth`。harness 在内存中验证 JWT `exp < 当前时间`，再调用 Supabase Auth `getUser(token)`，只有服务端拒绝才输出 `expiredSession.status=passed`。
+5. 未注入该变量时，整体输出为 `status=incomplete`，并明确 `requires_naturally_expired_supabase_issued_token`；不得判定完整 B 通过。
 
-Supabase MCP 的 OAuth 项目连接只提供数据库/开发工具，没有 Auth Admin create/delete user 工具。官方 Auth Admin `createUser({ email_confirm: true })` 和 `deleteUser` 必须使用服务端 service-role/secret；普通 publishable-key signup 在邮箱确认开启时不能获得已验证会话，也不能安全清理用户。禁止通过 SQL 直接写 `auth.*` 系统表。
+此流程需要真实时间流逝，不能在本轮静态整改中伪造完成。
 
-因此本轮没有创建合成用户，也没有伪造首次/并发/跨账号/pending/旧 token 运行证据。四张业务表仍为 0 行。
+## 6. 本轮验证
 
-解除阻断的最小安全动作：由环境所有者在本机受控终端会话或秘密管理器中注入上述三个变量，然后运行 `npm.cmd run test:g4-i1-auth`。不得把变量值粘贴到聊天、commit、日志或报告。
-
-## 6. 已完成验证
-
-- migration TDD：新增用例先 2 失败，完成后专项 7/7。
-- harness + migration 专项：10/10。
-- 全量 Vitest：10 个文件、37/37。
+- TDD 红灯：先后 5 个和 1 个预期失败；实现后专项 17/17 通过，全量 44/44 通过。
 - TypeScript strict typecheck：通过。
 - ESLint：通过。
 - Next.js production build：通过。
-- 生产依赖 audit：0 漏洞。
-- 无变量运行：按预期失败，仅输出缺失变量名。
-- 远端只读 SQL：history、ACL、search_path、未标记 UUID 拒绝全部通过。
-- Supabase Security Advisor：0。
-- Supabase Performance Advisor：仅既有空库 `space_memberships_user_id_idx` unused-index INFO。
+- `git diff --check`：通过。
+- 远端 migration history：4/4 顺序一致。
+- 远端函数 ACL/search_path/definer 复核：通过。
+- 远端 fixture guard 负向探针：通过。
+- Security Advisor：0。
+- 生产依赖 `npm audit --omit=dev`：0 漏洞。
 
-## 7. 复验与清理
+未执行 `npm.cmd run test:g4-i1-auth`，因为当前任务禁止读取、索取或自行注入 secret；真实 A/B、旧 token、pending_deletion/purging 和真正过期 token 运行证据仍待后续安全执行。
 
-不含 secret 的检查：
+## 7. 部署与门禁
 
-- `npm.cmd test -- tests/database/g4-i1-auth-harness.test.ts tests/database/g4-i1-migration-contract.test.ts`
-- `npm.cmd run typecheck`
-- 在项目 `ogvqegmgcuwlynczasop` 受控管理连接执行 `supabase/tests/g4_i1_auth_fixture_contract.sql`
-- `Get-FileHash supabase/migrations/20260729104223_g4_i1_auth_fixture_support.sql -Algorithm SHA256`
-
-含 secret 的 harness 只能由安全注入后的受控进程运行；它不接受命令行参数形式的密钥，并在所有退出路径执行本轮用户清理。若进程被操作系统强制终止，应使用 Auth Admin 按 `app_metadata.labflow_fixture=g4_i1_b` 和本次去敏运行记录定位本轮用户，再执行相同 delete/cascade 复验；不得按模糊邮箱范围批量删除。
-
-## 8. 部署与门禁
-
-- Supabase：fixture-support migration 已应用。
-- Auth 合成用户：未创建。
-- Web/Sites：未部署、未接真实 Auth UI。
+- Supabase：Prep-2 migration 已应用。
+- Web/Sites：本轮无部署、无 UI 变更。
 - G4-I1/A：已通过。
-- G4-I1/B：尚未通过；等待安全凭据注入后形成真实运行证据，再提交测试部独立验收。
+- G4-I1/B：仍待真实 Auth 运行与测试部正式验收。
 - G4-I1/C：禁止开始。
 
 `MEMORY.md` 不存在，本轮未创建或更新。

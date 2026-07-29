@@ -21,6 +21,13 @@ const authFixtureMigration = readFileSync(
   ),
   "utf8",
 );
+const tightenedFixtureMigration = readFileSync(
+  resolve(
+    process.cwd(),
+    "supabase/migrations/20260729113507_g4_i1_tighten_fixture_acl_and_membership.sql",
+  ),
+  "utf8",
+);
 
 describe("G4-I1 identity and personal-space migration", () => {
   it("creates the frozen identity tables and private boundary", () => {
@@ -104,6 +111,40 @@ describe("G4-I1 identity and personal-space migration", () => {
     );
     expect(authFixtureMigration).toContain(
       "raise exception 'G4-I1 fixture rollback probe'",
+    );
+  });
+
+  it("revokes the fixture predicate from authenticated callers", () => {
+    expect(tightenedFixtureMigration).toMatch(
+      /revoke execute on function private\.is_g4_i1_fixture_user\(uuid\)\s+from authenticated/,
+    );
+  });
+
+  it("adds service-only physical membership remove and restore probes", () => {
+    for (const functionName of [
+      "g4_i1_test_remove_membership",
+      "g4_i1_test_restore_membership",
+    ]) {
+      expect(tightenedFixtureMigration).toContain(
+        `create function private.${functionName}`,
+      );
+      expect(tightenedFixtureMigration).toContain(
+        `create function public.${functionName}`,
+      );
+      expect(tightenedFixtureMigration).toMatch(
+        new RegExp(
+          `grant execute on function public\\.${functionName}\\(uuid\\)\\s+to service_role`,
+        ),
+      );
+      expect(tightenedFixtureMigration).toMatch(
+        new RegExp(
+          `revoke all on function public\\.${functionName}\\(uuid\\)\\s+from public, anon, authenticated`,
+        ),
+      );
+    }
+    expect(tightenedFixtureMigration).toContain("set search_path = ''");
+    expect(tightenedFixtureMigration).toContain(
+      "private.is_g4_i1_fixture_user(p_user_id)",
     );
   });
 });

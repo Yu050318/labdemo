@@ -13,10 +13,12 @@
     "preview:opennext": "wrangler dev",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:g4-i1-auth": "node --no-warnings scripts/g4-i1-auth-isolation.ts"
   },
   "dependencies": {
     "@phosphor-icons/react": "2.1.10",
+    "@supabase/supabase-js": "2.111.0",
     "next": "^16.2.12",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

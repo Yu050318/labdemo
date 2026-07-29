@@ -14,6 +14,13 @@ const timezoneMigration = readFileSync(
   ),
   "utf8",
 );
+const authFixtureMigration = readFileSync(
+  resolve(
+    process.cwd(),
+    "supabase/migrations/20260729104223_g4_i1_auth_fixture_support.sql",
+  ),
+  "utf8",
+);
 
 describe("G4-I1 identity and personal-space migration", () => {
   it("creates the frozen identity tables and private boundary", () => {
@@ -65,6 +72,38 @@ describe("G4-I1 identity and personal-space migration", () => {
     );
     expect(timezoneMigration).toContain(
       "revoke all on function private.validate_preferences_timezone()",
+    );
+  });
+
+  it("limits B test fixtures to tagged users and service-role wrappers", () => {
+    expect(authFixtureMigration).toContain(
+      "raw_app_meta_data ->> 'labflow_fixture' = 'g4_i1_b'",
+    );
+    expect(authFixtureMigration).toContain("set search_path = ''");
+    expect(authFixtureMigration).toContain(
+      "grant execute on function public.g4_i1_test_set_account_status",
+    );
+    expect(authFixtureMigration).toContain(
+      "grant execute on function public.g4_i1_test_set_membership_status",
+    );
+    expect(authFixtureMigration).toContain("to service_role");
+    expect(authFixtureMigration).toContain(
+      "revoke all on function public.g4_i1_test_set_account_status",
+    );
+    expect(authFixtureMigration).toContain(
+      "grant select on table public.user_profiles to service_role",
+    );
+  });
+
+  it("provides a fixture-only rollback probe without exposing general writes", () => {
+    expect(authFixtureMigration).toContain(
+      "create function public.g4_i1_test_bootstrap_then_fail",
+    );
+    expect(authFixtureMigration).toContain(
+      "grant execute on function public.g4_i1_test_bootstrap_then_fail(text) to authenticated",
+    );
+    expect(authFixtureMigration).toContain(
+      "raise exception 'G4-I1 fixture rollback probe'",
     );
   });
 });

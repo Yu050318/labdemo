@@ -115,7 +115,7 @@ Prep-3 阶段开发部未执行 `npm.cmd run test:g4-i1-auth`，因为该阶段�
 
 ## 8. 用户受控真实运行证据
 
-用户在受控 PowerShell 会话运行 `npm run test:g4-i1-auth`。开发部未接触运行变量、Key、JWT、邮箱或原始 UUID，仅接收以下去敏结果：
+本次运行证据关联最后获准候选 `603d6cd0404c37454c26cde5d102e9f0bf69981b`。用户在受控 PowerShell 会话运行 `npm run test:g4-i1-auth`。开发部未接触运行变量、Key、JWT、邮箱或原始 UUID，仅接收以下去敏结果：
 
 - `status=incomplete`
 - `projectRef=ogvqegmgcuwlynczasop`
@@ -157,8 +157,9 @@ Prep-3 阶段开发部未执行 `npm.cmd run test:g4-i1-auth`，因为该阶段�
 
 - `QA-G4-I1-B-RUN-01`：原 Fixture A 创建阶段失败已不再复现，且真实运行完成全部后续 Auth/RLS/清理断言，可提交测试部关闭。
 - `PRE-02`：除自然过期 token 的服务端拒绝证据外，其余真实运行证据均已形成，可按子项关闭；`PRE-02` 整体仍不能关闭。
-- `G4-I1/B` 与完整 `G4-I1`：按当前冻结门禁仍未通过。
-- 在测试部关闭 `expiredSession` 并正式判定 B 通过，或产品部明确调整门禁前，不进入 G4-I1 下一增量。
+- `G4-I1/B`：测试部结论为有条件通过，但未完全关闭；完整 `G4-I1` 仍未通过。
+- 从技术与质量风险看，其余 I1 身份空间、并发、隔离、账户状态和清理路径已经覆盖，自然过期会话可作为独立并行门禁保留。
+- 只有产品部明确批准“条件式进入下一增量”后才能进入；在正式放行前不启动下一增量，且不得把进入下一增量解释为 `expiredSession`、PRE-02 或完整 I1 已通过。
 
 ## 9. `expiredSession` 安全执行方案
 
@@ -166,7 +167,7 @@ Prep-3 阶段开发部未执行 `npm.cmd run test:g4-i1-auth`，因为该阶段�
 
 1. 仅在用户受控本地进程内创建独立合成账号并取得 Supabase 正式签发的 access token。
 2. token 只保存在该进程内存中；不得输出、写入环境文件、普通文件、日志、剪贴板、聊天或 commit。
-3. 进程只记录非敏感的 `expires_at` 和阶段状态，并等待该签发 token 自然超过 `exp`；不得修改项目 JWT 生命周期、系统时钟或伪造 token。
+3. 进程只记录非敏感的 `expires_at` 和阶段状态，并等待该签发 token 自然超过 `exp`，再增加至少 60 秒安全余量；不得修改项目 JWT 生命周期、系统时钟或伪造 token。
 4. 到期后由同一进程调用 Supabase Auth `getUser(token)`；只有本地 `exp < now` 且服务端明确拒绝时，才输出 `expiredSession.status=passed`。
 5. 无论通过、失败或用户中断，均在 `finally`/退出处理器中清理该独立合成账号；随后再通过 project-scoped OAuth/MCP 只读核验 fixture 与四表聚合计数为 0。
 6. 输出仍只允许固定的 `status`、`stage`、安全错误类别和聚合计数，不得包含 token、邮箱、UUID、响应正文或请求头。

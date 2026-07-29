@@ -1,9 +1,9 @@
 # LabFlow P0 / G4-I2-A Schedule Schema 远端应用报告
 
-> 状态：已应用，待测试部独立远端验收  
-> 日期：2026-07-29  
-> 目标：LabFlow / `ogvqegmgcuwlynczasop`  
-> 分支：`codex/g4-i2-schedule`  
+> 状态：已应用，待测试部独立远端验收
+> 日期：2026-07-29
+> 目标：LabFlow / `ogvqegmgcuwlynczasop`
+> 分支：`codex/g4-i2-schedule`
 > 授权源 commit：`b68a02567c07cf221d725def16720d3a58b6b21b`
 
 ## 1. 授权对象与应用结果
@@ -149,7 +149,7 @@ Supabase MCP 为本次调用生成了远端 version，因此远端实际 version
 - TypeScript `tsc --noEmit`：通过；
 - ESLint：通过；
 - Next.js production build：通过；
-- `git diff --check`：通过；
+- 原报告 commit `f0284a1ccc41eb200d814182edf73e45fc5f0539` 的 `git diff --check` 结论无效：命令执行时报告仍为 untracked 文件，未进入检查范围；测试部按 `b68a025..f0284a1` 检出第 3–6 行尾随空格和 EOF 多余空行。本修正删除这些格式缺陷，并改用 staged、commit 和完整候选范围三层检查。
 - I2-A commit 相对父提交未修改 `src`、`public`、`design`：通过；
 - worktree 在远端应用后仍无应用代码或 UI 自动变更。
 
@@ -163,4 +163,3 @@ Supabase MCP 为本次调用生成了远端 version，因此远端实际 version
 - I2-B：未开始。
 - 回退：未执行。当前表为 0 行；任何 drop/回退均属破坏性操作，必须重新取得产品部明确授权。
 - 下一步：仅请求测试部对远端 history、catalog、CHECK、RLS/ACL、functions、Advisor、I1/G3 回归和 0 行状态做独立验收。测试部通过前不得进入 I2-B。
-

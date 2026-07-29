@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildCleanupEvidence,
+  assertBusinessReadCounts,
   crossAccountMutationMatrix,
   crossAccountSelectMatrix,
   isExpiredAuthRejection,
@@ -201,5 +202,48 @@ describe("G4-I1 Auth isolation harness", () => {
     expect(harnessSource).not.toMatch(
       /admin\s*\.from\([^)]*\)\s*\.(?:insert|update|upsert|delete)\s*\(/,
     );
+  });
+
+  it("keeps the active user's profile visible when membership is unavailable", () => {
+    expect(() =>
+      assertBusinessReadCounts(
+        {
+          profiles: 1,
+          spaces: 0,
+          memberships: 0,
+          preferences: 0,
+        },
+        "active_without_membership",
+        "removed membership",
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      assertBusinessReadCounts(
+        {
+          profiles: 0,
+          spaces: 0,
+          memberships: 0,
+          preferences: 0,
+        },
+        "active_without_membership",
+        "removed membership",
+      ),
+    ).toThrowError("removed membership profile count is not one");
+  });
+
+  it("hides all four tables when the account itself is inactive", () => {
+    expect(() =>
+      assertBusinessReadCounts(
+        {
+          profiles: 0,
+          spaces: 0,
+          memberships: 0,
+          preferences: 0,
+        },
+        "inactive_account",
+        "pending_deletion old session",
+      ),
+    ).not.toThrow();
   });
 });

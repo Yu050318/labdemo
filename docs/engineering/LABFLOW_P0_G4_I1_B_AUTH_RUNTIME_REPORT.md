@@ -1,9 +1,9 @@
 # LabFlow P0 / G4-I1/B Auth 运行态与隔离报告
 
-> 版本：G4-I1-B-Prep-2
+> 版本：G4-I1-B-Prep-3
 > 日期：2026-07-29
 > 目标项目：`LabFlow` / `ogvqegmgcuwlynczasop`
-> 当前结论：PRE-01 已关闭，PRE-02 所需 harness 已就绪；真实 Auth 与真实过期 token 证据仍等待环境所有者安全注入，B 尚未通过。
+> 当前结论：PRE-01 与 PRE-03 静态整改已完成，PRE-02 所需 harness 已就绪；真实 Auth 与真实过期 token 证据仍等待环境所有者安全注入，B 尚未通过。
 
 ## 1. 本轮整改
 
@@ -18,8 +18,11 @@
   - 同一 A/B 去敏 ID 对齐的清理前、后四表计数；
   - 真实过期 JWT 的本地 `exp` 校验与 Supabase Auth 服务端拒绝校验。
 - 固定伪 token 只标记为 `invalidSession`，不再作为“过期 token”证据。
+- 修正 PRE-03 测试口径：active 用户 membership 为 removed 或物理不存在时，本人 profile 仍为 1；spaces、space_memberships、user_preferences 为 0；bootstrap 必须拒绝。pending_deletion/purging 时四表仍全部为 0。
 
 未创建合成用户，未运行真实 Auth harness，未读取或输出任何 key、密码、邮箱、JWT、refresh token、连接串或 `.env`。
+
+PRE-03 不涉及数据库缺陷，本轮没有新增或应用 migration，也没有修改已应用 migration。
 
 ## 2. Migration 与远端状态
 
@@ -63,6 +66,12 @@ Supabase 平台的 `service_role` 客观上具备四张表的高权限写能力�
 
 成功清理的预期格式为每个别名清理前 `1/1/1/1`，清理后 `0/0/0/0`。报告不包含原始 UUID、邮箱或凭据。
 
+membership 边界的去敏断言只输出通过项，不输出业务行内容：
+
+- active + removed/missing membership：本人 profile 计数 `1`，空间相关三表计数均为 `0`；
+- A→B、B→A 的跨用户 profile 计数仍为 `0`；
+- pending_deletion/purging：四表计数均为 `0`。
+
 ## 5. 真正过期 token 的限制与独立验证方法
 
 托管项目的已签发 JWT 不能通过数据库 migration 或当前 project-scoped MCP 安全地“立即过期”；改变 Auth JWT 生命周期也不属于本轮数据库整改范围。伪造、篡改或固定无效 token 不得替代真实过期证据。
@@ -79,7 +88,9 @@ Supabase 平台的 `service_role` 客观上具备四张表的高权限写能力�
 
 ## 6. 本轮验证
 
-- TDD 红灯：先后 5 个和 1 个预期失败；实现后专项 17/17 通过，全量 44/44 通过。
+- Prep-2 TDD 红灯：先后 5 个和 1 个预期失败。
+- PRE-03 TDD 红灯：新增 2 个预期失败；最小修复后 harness 专项 10/10 通过。
+- 全量 Vitest：10 个文件、46/46 通过。
 - TypeScript strict typecheck：通过。
 - ESLint：通过。
 - Next.js production build：通过。

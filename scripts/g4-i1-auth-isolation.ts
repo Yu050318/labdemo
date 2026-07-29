@@ -704,9 +704,30 @@ async function changeMembershipPresence(
   }
 }
 
-async function assertNoBusinessRead(
+export function assertBusinessReadCounts(
+  counts: {
+    profiles: number;
+    spaces: number;
+    memberships: number;
+    preferences: number;
+  },
+  mode: "active_without_membership" | "inactive_account",
+  label: string,
+) {
+  const expectedProfiles = mode === "active_without_membership" ? 1 : 0;
+  invariant(
+    counts.profiles === expectedProfiles,
+    `${label} profile count is not ${expectedProfiles === 1 ? "one" : "zero"}`,
+  );
+  for (const table of ["spaces", "memberships", "preferences"] as const) {
+    invariant(counts[table] === 0, `${label} exposed ${table}`);
+  }
+}
+
+async function assertBusinessReadVisibility(
   user: FixtureUser,
   label: string,
+  mode: "active_without_membership" | "inactive_account",
 ) {
   const [profiles, spaces, memberships, preferences] = await Promise.all([
     user.client.from("user_profiles").select("user_id"),
@@ -722,8 +743,21 @@ async function assertNoBusinessRead(
     ["preferences", preferences],
   ] as const) {
     invariant(!result.error, `${label} ${table} read returned an API error`);
-    invariant(result.data.length === 0, `${label} exposed ${table}`);
   }
+  invariant(profiles.data, `${label} profiles read returned no data`);
+  invariant(spaces.data, `${label} spaces read returned no data`);
+  invariant(memberships.data, `${label} memberships read returned no data`);
+  invariant(preferences.data, `${label} preferences read returned no data`);
+  assertBusinessReadCounts(
+    {
+      profiles: profiles.data.length,
+      spaces: spaces.data.length,
+      memberships: memberships.data.length,
+      preferences: preferences.data.length,
+    },
+    mode,
+    label,
+  );
 }
 
 function snapshotCountsByUser(rows: FixtureSnapshot[]) {
@@ -955,7 +989,11 @@ export async function runAuthIsolationHarness(
     await assertCrossAccountIsolation(userA, userB, firstA, firstB);
 
     await setMembershipStatus(admin, userA.id, "removed");
-    await assertNoBusinessRead(userA, "removed membership");
+    await assertBusinessReadVisibility(
+      userA,
+      "removed membership",
+      "active_without_membership",
+    );
     await expectDenied(
       "removed membership bootstrap",
       userA.client.rpc("bootstrap_personal_space", { timezone }),
@@ -968,7 +1006,11 @@ export async function runAuthIsolationHarness(
       missingMembershipSnapshot?.membership_count === 0,
       "A membership row still exists after physical removal",
     );
-    await assertNoBusinessRead(userA, "missing membership");
+    await assertBusinessReadVisibility(
+      userA,
+      "missing membership",
+      "active_without_membership",
+    );
     await expectDenied(
       "missing membership bootstrap",
       userA.client.rpc("bootstrap_personal_space", { timezone }),
@@ -983,7 +1025,11 @@ export async function runAuthIsolationHarness(
 
     for (const status of ["pending_deletion", "purging"] as const) {
       await setAccountStatus(admin, userA.id, status);
-      await assertNoBusinessRead(userA, `${status} old session`);
+      await assertBusinessReadVisibility(
+        userA,
+        `${status} old session`,
+        "inactive_account",
+      );
       await expectDenied(
         `${status} bootstrap`,
         userA.client.rpc("bootstrap_personal_space", { timezone }),

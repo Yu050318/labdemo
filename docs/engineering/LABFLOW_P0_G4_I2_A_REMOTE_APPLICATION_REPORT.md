@@ -8,7 +8,7 @@
 
 ## 1. 授权对象与应用结果
 
-- 本地 migration：`supabase/migrations/20260729141437_g4_i2_schedule_schema.sql`
+- canonical migration：`supabase/migrations/20260729150030_g4_i2_schedule_schema.sql`
 - 本地 SHA-256：`F45E2445F68CF7CFF6BA6C21D7006286B58318F5DC37C2DD0FF4688516273301`
 - 应用工具：project-scoped Supabase MCP `apply_migration`
 - 远端实际 migration name：`g4_i2_schedule_schema`
@@ -17,7 +17,7 @@
 - 首次应用结果：成功
 - 应用次数：1
 
-Supabase MCP 为本次调用生成了远端 version，因此远端实际 version 与本地文件名前缀 `20260729141437` 不同。本地授权文件、内容和 SHA-256 未改变；没有改写 migration history，也没有为版本差异追加修补 migration。
+授权源 commit `b68a02567c07cf221d725def16720d3a58b6b21b` 应用时的本地文件前缀为 `20260729141437`；Supabase MCP 的调用契约没有 version 参数，远端因此生成实际 version `20260729150030`。REMOTE-01 修正仅将仓库中的 canonical 文件名对齐为远端 version；原授权与应用历史保留在 Git 中，SQL 字节、Git blob 和 SHA-256 未改变。远端 migration history 未被改写，也没有追加修补 migration。
 
 应用前已再次确认：
 
@@ -154,6 +154,17 @@ Supabase MCP 为本次调用生成了远端 version，因此远端实际 version
 - worktree 在远端应用后仍无应用代码或 UI 自动变更。
 
 构建仅出现共享仓库/隔离 worktree 双 lockfile 的既有 Next.js workspace-root 提示，不影响构建结果。`npm audit --omit=dev` 本轮因 npm registry audit endpoint/受限网络不可用未形成新结果；此前静态候选验收的生产依赖 audit 为 0 vulnerabilities。本项与 Supabase Advisor 结果分开记录。
+
+REMOTE-01 canonical 对齐候选补充验证：
+
+- TDD 红阶段：旧文件名 `20260729141437_g4_i2_schedule_schema.sql` 令精确 canonical filename 契约测试失败；
+- 纯 rename 后：canonical filename、唯一 timestamp、五条 migration 顺序和固定 SHA 契约测试通过；
+- rename 前后 SHA-256 均为 `F45E2445F68CF7CFF6BA6C21D7006286B58318F5DC37C2DD0FF4688516273301`；
+- rename 前后 Git blob 均为 `f846b32e7555e837f267bfae9836dfc0b75a09f0`；
+- 隔离临时 project `labflow-g4-i2-replay-150030` 从空数据库依次重放四条 I1 和 `20260729150030` I2，CLI 本地 migration list 为 5/5 对齐，五张业务表均为 0 行；
+- 隔离栈已按明确 project id 停止并删除数据卷，临时目录已删除；
+- 当前 worktree 没有 Supabase CLI linked project ref；`migration list --linked` 与 `db push --linked --dry-run` 均在连接前以 `LegacyProjectNotLinkedError` 退出 1。未执行 `supabase link`，未用真实 push 替代；
+- project-scoped OAuth/MCP 只读复核显示远端 history 仍为原五条，五张业务表仍为 0 行，I2-B RPC 仍为 0。
 
 ## 8. 部署状态与门禁
 

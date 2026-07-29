@@ -41,7 +41,7 @@
 依赖顺序：
 
 1. 已通过的 G4-I1 migrations。
-2. `supabase/migrations/20260729141437_g4_i2_schedule_schema.sql`
+2. `supabase/migrations/20260729150030_g4_i2_schedule_schema.sql`
 
 SHA-256：
 
@@ -93,7 +93,7 @@ SHA-256：
 
 ## 8. 修改文件
 
-- `supabase/migrations/20260729141437_g4_i2_schedule_schema.sql`
+- `supabase/migrations/20260729150030_g4_i2_schedule_schema.sql`
 - `supabase/tests/g4_i2_schedule_cancellation_reason_semantics.sql`
 - `tests/database/g4-i2-schedule-migration-contract.test.ts`
 - `docs/superpowers/plans/2026-07-29-labflow-g4-i2-schedule.md`

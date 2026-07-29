@@ -1,15 +1,34 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationsDirectory = resolve(process.cwd(), "supabase/migrations");
+const migrationNames = readdirSync(migrationsDirectory)
+  .filter((name) => name.endsWith(".sql"))
+  .sort();
 const scheduleMigrationNames = readdirSync(migrationsDirectory).filter((name) =>
   name.endsWith("_g4_i2_schedule_schema.sql"),
 );
+const canonicalScheduleMigrationName =
+  "20260729150030_g4_i2_schedule_schema.sql";
+const canonicalScheduleMigrationSha256 =
+  "F45E2445F68CF7CFF6BA6C21D7006286B58318F5DC37C2DD0FF4688516273301";
+const canonicalMigrationOrder = [
+  "20260729080019_g4_i1_identity_spaces_rls.sql",
+  "20260729080358_g4_i1_enforce_iana_timezone.sql",
+  "20260729104223_g4_i1_auth_fixture_support.sql",
+  "20260729113507_g4_i1_tighten_fixture_acl_and_membership.sql",
+  canonicalScheduleMigrationName,
+];
 
 describe("G4-I2 schedule schema migration", () => {
-  it("has exactly one CLI-generated schedule migration", () => {
-    expect(scheduleMigrationNames).toHaveLength(1);
+  it("uses the unique remote-aligned timestamp without changing SQL bytes", () => {
+    expect(scheduleMigrationNames).toEqual([canonicalScheduleMigrationName]);
+    expect(migrationNames).toEqual(canonicalMigrationOrder);
+    expect(new Set(migrationNames.map((name) => name.slice(0, 14))).size).toBe(
+      migrationNames.length,
+    );
   });
 
   const migration = scheduleMigrationNames[0]
@@ -18,6 +37,12 @@ describe("G4-I2 schedule schema migration", () => {
         "utf8",
       )
     : "";
+
+  it("keeps the authorized migration SHA-256", () => {
+    expect(
+      createHash("sha256").update(migration).digest("hex").toUpperCase(),
+    ).toBe(canonicalScheduleMigrationSha256);
+  });
 
   it("creates only the frozen task root with nullable protocol compatibility", () => {
     expect(migration).toContain("create table public.experiment_tasks");

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildCleanupEvidence,
   assertBusinessReadCounts,
@@ -12,6 +12,7 @@ import {
   loadRuntimeConfig,
   readExpiredJwtMetadata,
   redactIdentifier,
+  runAuthIsolationHarness,
 } from "../../scripts/g4-i1-auth-isolation";
 
 const harnessSource = readFileSync(
@@ -53,6 +54,59 @@ describe("G4-I1 Auth isolation harness", () => {
         SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
       }),
     ).toThrowError("SUPABASE_URL does not target the LabFlow test project");
+  });
+
+  it("fails closed before fetch when the target project uses HTTP", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      await expect(
+        runAuthIsolationHarness({
+          NODE_ENV: "test",
+          SUPABASE_URL: "http://ogvqegmgcuwlynczasop.supabase.co",
+          SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+          SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
+        }),
+      ).rejects.toThrowError("SUPABASE_URL must use the LabFlow HTTPS origin");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    "https://operator:password@ogvqegmgcuwlynczasop.supabase.co",
+    "https://ogvqegmgcuwlynczasop.supabase.co:444",
+  ])("rejects unsafe target URL form before writes: %s", (supabaseUrl) => {
+    expect(() =>
+      loadRuntimeConfig({
+        SUPABASE_URL: supabaseUrl,
+        SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
+      }),
+    ).toThrowError("SUPABASE_URL must use the LabFlow HTTPS origin");
+  });
+
+  it("rejects malformed target URLs without echoing the input", () => {
+    const malformed = "not a URL with sensitive query material";
+    expect(() =>
+      loadRuntimeConfig({
+        SUPABASE_URL: malformed,
+        SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
+      }),
+    ).toThrowError("SUPABASE_URL is not a valid URL");
+
+    try {
+      loadRuntimeConfig({
+        SUPABASE_URL: malformed,
+        SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
+      });
+    } catch (error) {
+      expect(String(error)).not.toContain(malformed);
+    }
   });
 
   it("removes a new secret key from the Auth bearer header", async () => {

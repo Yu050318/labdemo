@@ -286,14 +286,22 @@ export function loadRuntimeConfig(
     throw new Error(`Missing server runtime variables: ${missing.join(", ")}`);
   }
 
-  let hostname: string;
+  let parsedUrl: URL;
   try {
-    hostname = new URL(environment.SUPABASE_URL!).hostname;
+    parsedUrl = new URL(environment.SUPABASE_URL!);
   } catch {
     throw new Error("SUPABASE_URL is not a valid URL");
   }
-  if (hostname !== `${expectedProjectRef}.supabase.co`) {
+  const expectedHostname = `${expectedProjectRef}.supabase.co`;
+  if (parsedUrl.hostname !== expectedHostname) {
     throw new Error("SUPABASE_URL does not target the LabFlow test project");
+  }
+  if (
+    parsedUrl.origin !== `https://${expectedHostname}`
+    || parsedUrl.username !== ""
+    || parsedUrl.password !== ""
+  ) {
+    throw new Error("SUPABASE_URL must use the LabFlow HTTPS origin");
   }
 
   return {

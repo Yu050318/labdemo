@@ -34,7 +34,7 @@
 - 在 harness 的统一 fetch 边界中，仅当新格式 API Key 被原样复制为 Bearer 时删除 `Authorization`，保留 `apikey`。
 - 真实用户 session Bearer 不受影响。
 - 所有 harness Supabase 客户端共用该边界，包括管理员、publishable、失效会话探针。
-- 首次远端操作前核验 URL 必须精确指向 `ogvqegmgcuwlynczasop.supabase.co`。
+- 首次远端操作前核验 URL 必须使用目标 HTTPS origin：protocol 为 `https:`、hostname 精确为 `ogvqegmgcuwlynczasop.supabase.co`，且不得内嵌凭据或使用非标准端口。
 - Fixture 创建、登录和清理失败只输出：
   - `stage`
   - `status`

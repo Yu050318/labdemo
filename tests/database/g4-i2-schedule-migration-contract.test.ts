@@ -49,10 +49,13 @@ describe("G4-I2 schedule schema migration", () => {
   it("stores cancellation reason as constrained task text, not audit metadata", () => {
     expect(migration).toContain("cancellation_reason text");
     expect(migration).toMatch(
-      /cancellation_reason is null\s+or\s+\(\s*length\(btrim\(cancellation_reason\)\) between 1 and 500/,
+      /regexp_replace\(\s*cancellation_reason,\s*E'\^\[ \\t\\r\\n\\f\]\+\|\[ \\t\\r\\n\\f\]\+\$',\s*'',\s*'g'\s*\)/,
     );
-    expect(migration).toContain(
-      "cancellation_reason = btrim(cancellation_reason)",
+    expect(migration).toMatch(
+      /length\(cancellation_reason\) between 1 and 500/,
+    );
+    expect(migration).not.toMatch(
+      /length\(btrim\(cancellation_reason\)\)/,
     );
     expect(migration).toMatch(
       /execution_state = 'cancelled'\s+and cancellation_reason is not null/,
@@ -61,6 +64,22 @@ describe("G4-I2 schedule schema migration", () => {
       /execution_state <> 'cancelled'\s+and cancellation_reason is null/,
     );
     expect(migration).not.toContain("create table private.audit_events");
+  });
+
+  it("ships an executable PostgreSQL cancellation reason semantics test", () => {
+    const semanticsTest = readFileSync(
+      resolve(
+        process.cwd(),
+        "supabase/tests/g4_i2_schedule_cancellation_reason_semantics.sql",
+      ),
+      "utf8",
+    );
+
+    expect(semanticsTest).toContain("legacy_btrim_does_not_trim_tabs");
+    expect(semanticsTest).toContain("required_boundary_whitespace_is_empty");
+    expect(semanticsTest).toContain("internal_newline_is_preserved");
+    expect(semanticsTest).toContain("exactly_500_characters_is_valid");
+    expect(semanticsTest).toContain("more_than_500_characters_is_invalid");
   });
 
   it("derives UTC using a validated IANA timezone without trusting client instants", () => {

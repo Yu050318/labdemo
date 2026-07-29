@@ -48,8 +48,13 @@ create table public.experiment_tasks (
     check (
       cancellation_reason is null
       or (
-        length(btrim(cancellation_reason)) between 1 and 500
-        and cancellation_reason = btrim(cancellation_reason)
+        length(cancellation_reason) between 1 and 500
+        and cancellation_reason = regexp_replace(
+          cancellation_reason,
+          E'^[ \t\r\n\f]+|[ \t\r\n\f]+$',
+          '',
+          'g'
+        )
       )
     ),
   constraint experiment_tasks_cancellation_state_check

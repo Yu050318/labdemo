@@ -188,6 +188,26 @@ interface RuntimeConfig {
   expiredAccessToken?: string;
 }
 
+interface SafeAuthFailure {
+  stage: string;
+  status: number | null;
+  code: string;
+  category:
+    | "authorization"
+    | "request"
+    | "service"
+    | "transport"
+    | "sdk_unknown"
+    | "missing_response_data"
+    | "auth";
+}
+
+class AuthHarnessFailure extends Error {
+  constructor(readonly failure: SafeAuthFailure) {
+    super("Auth harness request failed");
+  }
+}
+
 interface FixtureSnapshot {
   user_id: string;
   profile_count: number;
@@ -219,6 +239,7 @@ interface FixtureCounts {
 
 const fixtureTag = "g4_i1_b";
 const timezone = "Asia/Shanghai";
+const expectedProjectRef = "ogvqegmgcuwlynczasop";
 
 export const crossAccountSelectMatrix = [
   ["A", "B", "user_profiles"],
@@ -265,12 +286,82 @@ export function loadRuntimeConfig(
     throw new Error(`Missing server runtime variables: ${missing.join(", ")}`);
   }
 
+  let hostname: string;
+  try {
+    hostname = new URL(environment.SUPABASE_URL!).hostname;
+  } catch {
+    throw new Error("SUPABASE_URL is not a valid URL");
+  }
+  if (hostname !== `${expectedProjectRef}.supabase.co`) {
+    throw new Error("SUPABASE_URL does not target the LabFlow test project");
+  }
+
   return {
     supabaseUrl: environment.SUPABASE_URL!,
     publishableKey: environment.SUPABASE_PUBLISHABLE_KEY!,
     serviceRoleKey: environment.SUPABASE_SERVICE_ROLE_KEY!,
     expiredAccessToken: environment.LABFLOW_TEST_EXPIRED_ACCESS_TOKEN,
   };
+}
+
+export function createNewApiKeySafeFetch(
+  fetchImplementation: typeof fetch = fetch,
+): typeof fetch {
+  return async (input, init) => {
+    const headers = new Headers(init?.headers);
+    const apiKey = headers.get("apikey");
+    const authorization = headers.get("Authorization");
+    const isNewApiKey =
+      apiKey?.startsWith("sb_secret_")
+      || apiKey?.startsWith("sb_publishable_");
+
+    if (isNewApiKey && authorization === `Bearer ${apiKey}`) {
+      headers.delete("Authorization");
+    }
+
+    return fetchImplementation(input, { ...init, headers });
+  };
+}
+
+export function classifyAuthFailure(
+  stage: string,
+  error: unknown,
+): SafeAuthFailure {
+  const record =
+    typeof error === "object" && error !== null
+      ? (error as Record<string, unknown>)
+      : null;
+  const rawStatus = record?.status;
+  const status =
+    typeof rawStatus === "number"
+    && Number.isInteger(rawStatus)
+    && rawStatus >= 100
+    && rawStatus <= 599
+      ? rawStatus
+      : null;
+  const rawCode = record?.code;
+  const code =
+    typeof rawCode === "string" && /^[a-z0-9_]{1,64}$/.test(rawCode)
+      ? rawCode
+      : "unavailable";
+  const name = typeof record?.name === "string" ? record.name : "";
+
+  let category: SafeAuthFailure["category"] = "auth";
+  if (error === null) {
+    category = "missing_response_data";
+  } else if (name === "AuthRetryableFetchError") {
+    category = "transport";
+  } else if (name === "AuthUnknownError") {
+    category = "sdk_unknown";
+  } else if (status === 401 || status === 403) {
+    category = "authorization";
+  } else if (status !== null && status >= 500) {
+    category = "service";
+  } else if (status !== null && status >= 400) {
+    category = "request";
+  }
+
+  return { stage, status, code, category };
 }
 
 export function redactIdentifier(value: string): string {
@@ -369,6 +460,7 @@ function authOptions() {
       persistSession: false,
       detectSessionInUrl: false,
     },
+    global: { fetch: createNewApiKeySafeFetch() },
   };
 }
 
@@ -398,8 +490,11 @@ async function createFixtureUser(
   });
 
   if (created.error || !created.data.user) {
-    throw new Error(
-      `Fixture ${alias} creation failed (${created.error?.code ?? "unknown"})`,
+    throw new AuthHarnessFailure(
+      classifyAuthFailure(
+        `fixture_${alias}_creation`,
+        created.error ?? null,
+      ),
     );
   }
   onCreated(created.data.user.id);
@@ -412,8 +507,11 @@ async function createFixtureUser(
   const signedIn = await client.auth.signInWithPassword(credentials);
 
   if (signedIn.error || !signedIn.data.session) {
-    throw new Error(
-      `Fixture ${alias} sign-in failed (${signedIn.error?.code ?? "unknown"})`,
+    throw new AuthHarnessFailure(
+      classifyAuthFailure(
+        `fixture_${alias}_sign_in`,
+        signedIn.error ?? null,
+      ),
     );
   }
 
@@ -823,8 +921,8 @@ async function deleteFixtureUsers(
   for (const userId of [...userIds].reverse()) {
     const result = await admin.auth.admin.deleteUser(userId);
     if (result.error && result.error.status !== 404) {
-      throw new Error(
-        `fixture cleanup failed (${result.error.code ?? "unknown"})`,
+      throw new AuthHarnessFailure(
+        classifyAuthFailure("fixture_cleanup", result.error),
       );
     }
   }
@@ -1070,7 +1168,7 @@ export async function runAuthIsolationHarness(
     );
     report = {
       status: expiredSession.status === "passed" ? "passed" : "incomplete",
-      projectRef: "ogvqegmgcuwlynczasop",
+      projectRef: expectedProjectRef,
       fixtures: users.map((user) => ({
         alias: user.alias,
         redactedId: redactIdentifier(user.id),
@@ -1132,6 +1230,17 @@ async function main() {
     const result = await runAuthIsolationHarness();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
+    if (error instanceof AuthHarnessFailure) {
+      process.stderr.write(
+        `${JSON.stringify(
+          { status: "failed", failure: error.failure },
+          null,
+          2,
+        )}\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     const reason =
       error instanceof Error ? error.message : "Unknown harness failure";
     process.stderr.write(

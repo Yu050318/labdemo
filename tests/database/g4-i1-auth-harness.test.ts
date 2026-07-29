@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildCleanupEvidence,
   assertBusinessReadCounts,
+  classifyAuthFailure,
+  createNewApiKeySafeFetch,
   crossAccountMutationMatrix,
   crossAccountSelectMatrix,
   isExpiredAuthRejection,
@@ -41,6 +43,86 @@ describe("G4-I1 Auth isolation harness", () => {
     } catch (error) {
       expect(String(error)).not.toContain(sentinel);
     }
+  });
+
+  it("fails closed before writes when the URL targets another project", () => {
+    expect(() =>
+      loadRuntimeConfig({
+        SUPABASE_URL: "https://not-labflow.supabase.co",
+        SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test",
+      }),
+    ).toThrowError("SUPABASE_URL does not target the LabFlow test project");
+  });
+
+  it("removes a new secret key from the Auth bearer header", async () => {
+    const observedHeaders: Headers[] = [];
+    const safeFetch = createNewApiKeySafeFetch(async (_input, init) => {
+      observedHeaders.push(new Headers(init?.headers));
+      return new Response(null, { status: 204 });
+    });
+
+    await safeFetch("https://example.test/auth/v1/admin/users", {
+      headers: {
+        apikey: "sb_secret_test",
+        Authorization: "Bearer sb_secret_test",
+      },
+    });
+
+    expect(observedHeaders[0]?.get("apikey")).toBe("sb_secret_test");
+    expect(observedHeaders[0]?.has("Authorization")).toBe(false);
+  });
+
+  it("preserves a real user bearer token", async () => {
+    const observedHeaders: Headers[] = [];
+    const safeFetch = createNewApiKeySafeFetch(async (_input, init) => {
+      observedHeaders.push(new Headers(init?.headers));
+      return new Response(null, { status: 204 });
+    });
+
+    await safeFetch("https://example.test/rest/v1/user_profiles", {
+      headers: {
+        apikey: "sb_secret_test",
+        Authorization: "Bearer user-session-token",
+      },
+    });
+
+    expect(observedHeaders[0]?.get("Authorization")).toBe(
+      "Bearer user-session-token",
+    );
+  });
+
+  it("classifies Auth failures without serializing messages or bodies", () => {
+    const failure = classifyAuthFailure("fixture_A_creation", {
+      name: "AuthApiError",
+      status: 403,
+      code: "bad_jwt",
+      message: "sensitive upstream response",
+      body: "must not be serialized",
+    });
+
+    expect(failure).toEqual({
+      stage: "fixture_A_creation",
+      status: 403,
+      code: "bad_jwt",
+      category: "authorization",
+    });
+    expect(JSON.stringify(failure)).not.toContain("sensitive");
+    expect(JSON.stringify(failure)).not.toContain("serialized");
+  });
+
+  it("classifies code-less transport failures without using unknown", () => {
+    expect(
+      classifyAuthFailure("fixture_A_creation", {
+        name: "AuthRetryableFetchError",
+        status: 0,
+      }),
+    ).toEqual({
+      stage: "fixture_A_creation",
+      status: null,
+      code: "unavailable",
+      category: "transport",
+    });
   });
 
   it("produces stable non-reversible identifiers for reports", () => {

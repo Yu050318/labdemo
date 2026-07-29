@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   assessPushCapability,
+  formatPushCapabilityReason,
   type PushCapability,
 } from "../lib/pwa/push-capability";
 
@@ -52,7 +53,7 @@ export function M0Capabilities() {
         </div>
         <div>
           <dt>Secure context</dt>
-          <dd>{pushCapability?.reason ?? "checking"}</dd>
+          <dd>{formatPushCapabilityReason(pushCapability)}</dd>
         </div>
       </dl>
       <p>

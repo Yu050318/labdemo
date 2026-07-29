@@ -62,3 +62,13 @@ export function assessPushCapability(
     reason: null,
   };
 }
+
+export function formatPushCapabilityReason(
+  capability: PushCapability | null,
+): string {
+  if (capability === null) {
+    return "checking";
+  }
+
+  return capability.reason ?? "available";
+}

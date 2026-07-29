@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assessPushCapability } from "../src/lib/pwa/push-capability";
+import {
+  assessPushCapability,
+  formatPushCapabilityReason,
+} from "../src/lib/pwa/push-capability";
 
 describe("assessPushCapability", () => {
   it("reports Web Push as available only when every browser primitive exists", () => {
@@ -46,5 +49,17 @@ describe("assessPushCapability", () => {
       fallback: "in_app",
       reason: "push_api_unsupported",
     });
+  });
+});
+
+describe("formatPushCapabilityReason", () => {
+  it("does not leave a successful secure-context probe in checking state", () => {
+    expect(
+      formatPushCapabilityReason({
+        status: "available",
+        fallback: "in_app",
+        reason: null,
+      }),
+    ).toBe("available");
   });
 });

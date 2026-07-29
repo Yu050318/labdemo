@@ -23,6 +23,7 @@ design/labflow-g3/dist/
 
 # Reproducible deployment archives stay outside source control
 artifacts/
+.worktrees/
 
 # Logs and OS/editor noise
 *.log

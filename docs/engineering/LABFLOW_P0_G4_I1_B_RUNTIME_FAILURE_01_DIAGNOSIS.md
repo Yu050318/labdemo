@@ -51,3 +51,14 @@ npm.cmd run test:g4-i1-auth
 ```
 
 用户只应回传命令产生的去敏 JSON，不应回传任何环境变量或凭据。真正自然过期 token 的服务端拒绝证据如仍缺失，必须继续单独标记为未关闭。
+
+## RUN-03：Node 24 启动兼容性
+
+- 复现环境为 Node.js `v24.15.0`；`test:g4-i1-auth` 通过 Node 直接执行 `.ts` 文件，采用原生 strip-only TypeScript。
+- 根因为 `AuthHarnessFailure` 构造函数使用 TypeScript parameter property。该语法需要转换，不能仅靠类型擦除，因此脚本在任何客户端创建、fetch 或远端操作前解析失败。
+- 使用 TypeScript `erasableSyntaxOnly` 对项目进行同类扫描，只发现这一处不可擦除语法。
+- 最小修复将 parameter property 改为显式只读字段和构造函数赋值，没有新增运行器或依赖。
+- 启动级回归使用当前 Node 可执行文件、空白受控环境和真实脚本入口，证明脚本完成解析并在创建客户端或 fetch 前，以固定去敏的缺变量错误退出。
+- RUN-02 的目标 HTTPS origin 锁定、新 API Key/Bearer 分离和安全诊断回归继续由专项测试覆盖。
+
+RUN-03 经测试部关闭且产品部重新授权前，用户不得运行真实 Auth harness。

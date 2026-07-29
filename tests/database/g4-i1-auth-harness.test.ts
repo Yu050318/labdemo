@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +22,28 @@ const harnessSource = readFileSync(
 );
 
 describe("G4-I1 Auth isolation harness", () => {
+  it("starts under Node strip-only mode and stops at missing variables", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--no-warnings",
+        resolve(process.cwd(), "scripts/g4-i1-auth-isolation.ts"),
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { NODE_ENV: "test" },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      '"reason": "Missing server runtime variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY"',
+    );
+    expect(result.stderr).not.toContain("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX");
+  });
+
   it("fails closed without server-only runtime variables", () => {
     expect(() => loadRuntimeConfig({})).toThrowError(
       "Missing server runtime variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY",

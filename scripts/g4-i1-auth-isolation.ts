@@ -203,8 +203,11 @@ interface SafeAuthFailure {
 }
 
 class AuthHarnessFailure extends Error {
-  constructor(readonly failure: SafeAuthFailure) {
+  readonly failure: SafeAuthFailure;
+
+  constructor(failure: SafeAuthFailure) {
     super("Auth harness request failed");
+    this.failure = failure;
   }
 }
 

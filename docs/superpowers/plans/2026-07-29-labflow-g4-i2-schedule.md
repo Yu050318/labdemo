@@ -53,6 +53,15 @@
 - §8 `validate_task_time`、`set_soft_delete_purge_after`。
 - 为 task RPC 提供最小必要的 `private.mutation_receipts` 与 task audit 记录。
 
+### 2.4 产品冻结增量：取消原因
+
+- `public.experiment_tasks.cancellation_reason` 为 nullable 纯文本业务正文，不复用 `notes`。
+- `cancel_experiment_task` 对 reason 执行 trim 后要求 1–500 字符；空白或超长返回 `VALIDATION_FAILED`，事务零副作用。
+- `execution_state='cancelled'` 时原因必须非空；其他状态原因必须为 `null`。
+- 取消事务原子更新状态、原因和 revision，写 mutation receipt，并只向 audit metadata 写状态/revision，不写取消正文。
+- 不增加 `cancelled_at`；取消事件时间以不可变 audit event `created_at` 为事实。
+- JSON 导出后续包含该任务字段；CSV 口径留到 I6。
+
 ## 3. I2 明确排除
 
 - Protocols 表、方案搜索、方案草稿/待复核/确认/停用、不可变版本和方案关联业务；这些全部属于 G4-I3。
@@ -127,6 +136,7 @@ I2-C 的前置依赖是已评审的 SSR Auth/session 应用适配器。当前 `s
 - RPC contract：创建无 expected revision，更新携带一个 expected revision。
 - time contract：早/中/晚、精确起止、IANA timezone、逾期不改执行事实。
 - mutation contract：同 mutation/同 payload 返回原结果；同 mutation/不同 payload 拒绝。
+- cancel contract：reason trim 后 1–500 字符；空白/超长零副作用；正文只落任务字段，不进入 audit metadata。
 
 ### 7.2 远端结构与 RLS
 

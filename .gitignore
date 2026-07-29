@@ -1,0 +1,21 @@
+# Dependencies and build outputs
+node_modules/
+.next/
+.open-next/
+.wrangler/
+out/
+coverage/
+*.tsbuildinfo
+
+# Local runtime configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Platform-local state
+.vercel/
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+Thumbs.db

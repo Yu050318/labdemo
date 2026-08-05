@@ -891,6 +891,21 @@ begin
     raise exception 'purge window must be 30 days: %', result::text;
   end if;
 
+  -- A new logical command with a stale revision must conflict even though the
+  -- task is already deleted. Only a same-mutation replay is idempotent.
+  result := public.soft_delete_entity(
+    mutationId => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad6'::uuid,
+    clientOccurredAt => '2026-08-05T02:00:30+00:00'::timestamptz,
+    expectedRevision => 2,
+    entityType => 'task',
+    entityId => task_id,
+    confirmation => true
+  );
+  if result #>> '{error,code}' is distinct from 'CONFLICT'
+     or (result #>> '{error,currentRevision}')::int is distinct from 3 then
+    raise exception 'stale repeat soft-delete must conflict at revision 3: %', result::text;
+  end if;
+
   -- Deleted tasks are invisible to update/cancel.
   result := public.update_experiment_task(
     mutationId => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad4'::uuid,
@@ -1226,7 +1241,7 @@ declare
   task1 uuid := current_setting('g4i2b.task1', true)::uuid;
   r record;
 begin
-  -- d0/d1 soft-delete and d2/d3 restore receipts.
+  -- d0/d1 soft-delete, d6 stale conflict and d2/d3 restore receipts.
   select * into r
   from private.mutation_receipts
   where user_id = '11111111-1111-4111-8111-111111111111'::uuid
@@ -1242,6 +1257,24 @@ begin
     and mutation_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad1'::uuid;
   if r.result_code <> 'committed' or r.result_revision <> 3 then
     raise exception 'd1 no-op receipt inconsistent: %', to_jsonb(r)::text;
+  end if;
+
+  select * into r
+  from private.mutation_receipts
+  where user_id = '11111111-1111-4111-8111-111111111111'::uuid
+    and mutation_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad6'::uuid;
+  if r.rpc_name <> 'soft_delete_entity'
+     or r.result_code <> 'conflict_registered'
+     or r.result_revision <> 3
+     or r.entity_id <> task1 then
+    raise exception 'd6 stale soft-delete receipt inconsistent: %', to_jsonb(r)::text;
+  end if;
+
+  if exists (
+    select 1 from private.audit_events
+    where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad6'::uuid
+  ) then
+    raise exception 'd6 stale soft-delete wrote an audit event';
   end if;
 
   select * into r
@@ -1337,8 +1370,8 @@ declare
   r public.sync_conflicts%rowtype;
 begin
   select count(*) into n from public.sync_conflicts;
-  if n <> 2 then
-    raise exception 'expected exactly 2 sync_conflicts, got %', n;
+  if n <> 3 then
+    raise exception 'expected exactly 3 sync_conflicts, got %', n;
   end if;
 
   select * into r from public.sync_conflicts
@@ -1360,6 +1393,16 @@ begin
      or r.entity_type <> 'task' or r.entity_id <> task5
      or r.pending_intent #>> '{rpcName}' <> 'cancel_experiment_task' then
     raise exception 'cd conflict row inconsistent: %', to_jsonb(r)::text;
+  end if;
+
+  select * into r from public.sync_conflicts
+  where mutation_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaad6'::uuid;
+  if r.reason <> 'STALE_ENTITY_REVISION' or r.status <> 'open'
+     or r.base_revision <> 2 or r.current_revision <> 3
+     or r.entity_type <> 'task' or r.entity_id <> task1
+     or r.pending_intent #>> '{rpcName}' <> 'soft_delete_entity'
+     or (r.current_state #>> '{revision}')::int <> 3 then
+    raise exception 'd6 stale soft-delete conflict row inconsistent: %', to_jsonb(r)::text;
   end if;
 end;
 $$;

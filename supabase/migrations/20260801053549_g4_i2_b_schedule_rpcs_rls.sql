@@ -1561,8 +1561,8 @@ begin
     );
   end if;
 
-  -- Unlike update/cancel, the deleted row stays visible to this helper so a
-  -- repeated soft-delete with a fresh mutationId becomes a committed no-op.
+  -- Unlike update/cancel, the deleted row stays visible so an up-to-date
+  -- repeated soft-delete can be a committed no-op.
   select *
     into task_row
   from public.experiment_tasks as task
@@ -1573,6 +1573,29 @@ begin
     return private.raise_api_error(
       'NOT_FOUND',
       'Task not found or not visible.'
+    );
+  end if;
+
+  if task_row.revision <> p_expected_revision then
+    return private.register_task_revision_conflict(
+      current_user_id,
+      p_mutation_id,
+      'soft_delete_entity',
+      computed_hash,
+      task_row.space_id,
+      p_entity_id,
+      p_expected_revision,
+      task_row.revision,
+      jsonb_build_object(
+        'rpcName', 'soft_delete_entity',
+        'expectedRevision', p_expected_revision
+      ),
+      jsonb_build_object(
+        'revision', task_row.revision,
+        'executionState', task_row.execution_state,
+        'plannedStartAt', task_row.planned_start_at,
+        'plannedEndAt', task_row.planned_end_at
+      )
     );
   end if;
 
@@ -1624,29 +1647,6 @@ begin
         'executionState', task_row.execution_state,
         'deletedAt', task_row.deleted_at,
         'purgeAfter', task_row.purge_after
-      )
-    );
-  end if;
-
-  if task_row.revision <> p_expected_revision then
-    return private.register_task_revision_conflict(
-      current_user_id,
-      p_mutation_id,
-      'soft_delete_entity',
-      computed_hash,
-      task_row.space_id,
-      p_entity_id,
-      p_expected_revision,
-      task_row.revision,
-      jsonb_build_object(
-        'rpcName', 'soft_delete_entity',
-        'expectedRevision', p_expected_revision
-      ),
-      jsonb_build_object(
-        'revision', task_row.revision,
-        'executionState', task_row.execution_state,
-        'plannedStartAt', task_row.planned_start_at,
-        'plannedEndAt', task_row.planned_end_at
       )
     );
   end if;

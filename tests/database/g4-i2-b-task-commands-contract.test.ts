@@ -112,7 +112,7 @@ describe("G4-I2-B schedule task command RPCs", () => {
   it("keeps the authorized I2-B RPC/RLS SHA unchanged", () => {
     expect(rpcMigrationNames).toHaveLength(1);
     expect(sha256(rpcMigrationNames[0])).toBe(
-      "194ED18785133067DABC1A06C81F84884ADFD9C5BF4B92391FC4CA5F87B9205F",
+      "6637DBCD69FBD265A64D96C73E83FB6F172E7C24170DC2C3472141E830BE093B",
     );
   });
 

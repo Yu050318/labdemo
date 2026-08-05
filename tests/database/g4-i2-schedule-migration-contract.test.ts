@@ -20,6 +20,8 @@ const canonicalMigrationOrder = [
   "20260729104223_g4_i1_auth_fixture_support.sql",
   "20260729113507_g4_i1_tighten_fixture_acl_and_membership.sql",
   canonicalScheduleMigrationName,
+  "20260801053545_g4_i2_b_task_command_foundation.sql",
+  "20260801053549_g4_i2_b_schedule_rpcs_rls.sql",
 ];
 
 describe("G4-I2 schedule schema migration", () => {
